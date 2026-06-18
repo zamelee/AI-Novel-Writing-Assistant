@@ -314,11 +314,16 @@ export async function acquireHighMemoryReservation(input: {
 function reservationScopesOverlap(requestedScope: string | null | undefined, existingScope: string | null | undefined): boolean {
   const requested = requestedScope?.trim() || null;
   const existing = existingScope?.trim() || null;
-  if (!requested || !existing) {
-    return true;
-  }
+  // "book" is a wildcard scope that intentionally conflicts with any other
+  // scope so the whole-novel lock cannot be bypassed by a narrow request.
   if (requested === "book" || existing === "book") {
     return true;
+  }
+  // If either side has no recorded scope, treat them as non-overlapping
+  // (relaxed rule: missing scope no longer auto-blocks). A later equality
+  // check still blocks when both sides agree on the same scope.
+  if (!requested || !existing) {
+    return false;
   }
   return requested === existing;
 }
@@ -337,18 +342,32 @@ export async function acquireScopedHighMemoryReservation(input: {
   const scope = input.scope.trim() || "book";
   const ownerId = input.ownerId?.trim() || `${namespace}:${novelId}:${process.pid}:${randomUUID()}`;
   const now = input.now ?? new Date();
-  const gate = await acquireHighMemoryReservation({
-    namespace: `${namespace}.gate`,
-    scopeKey: novelId,
-    ownerId: `${ownerId}:gate`,
-    ttlMs: Math.min(Math.max(input.ttlMs, 1000), 10_000),
-    metadata: {
-      novelId,
-      scope: "gate",
-    },
-    now,
-  });
-  if (!gate.acquired) {
+  // Gate acquire can flake under burst writes (process restart left a
+  // freshly-stale gate key while the request thread observes it). Try once
+  // with a tiny backoff before giving up so transient SQLite contention
+  // does not turn into a permanent "duplicate" error.
+  // Assigned at least once in the loop below; narrowed to acquired:true after the if-return guard.
+  let gate!: Awaited<ReturnType<typeof acquireHighMemoryReservation>>;
+  for (let gateAttempt = 0; gateAttempt < 2; gateAttempt += 1) {
+    gate = await acquireHighMemoryReservation({
+      namespace: `${namespace}.gate`,
+      scopeKey: novelId,
+      ownerId: `${ownerId}:gate`,
+      ttlMs: Math.min(Math.max(input.ttlMs, 1000), 10_000),
+      metadata: {
+        novelId,
+        scope: "gate",
+      },
+      now,
+    });
+    if (gate.acquired) {
+      break;
+    }
+    if (gateAttempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  if (!gate || !gate.acquired) {
     return gate;
   }
 

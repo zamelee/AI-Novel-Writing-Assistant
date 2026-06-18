@@ -4,6 +4,8 @@ import type {
   DirectorBookAutomationProjection,
 } from "@ai-novel/shared/types/directorRuntime";
 import { getDirectorNodeDisplayLabel } from "@ai-novel/shared/types/directorRuntime";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -14,9 +16,13 @@ import {
   History,
   PauseCircle,
   ShieldCheck,
+  Wand2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { queryKeys } from "@/api/queryKeys";
+import { repairNovelWorkflowChapterTitles } from "@/api/novelWorkflow";
+import { getChapterTitleDiversityReport } from "@/api/novel/volumes";
 import { cn } from "@/lib/utils";
 
 export interface AICockpitProps {
@@ -242,6 +248,83 @@ export default function AICockpit(props: AICockpitProps) {
   } = props;
   const focusProjection = props.projection ?? null;
   const isCompact = mode === "compact";
+  const novelId = focusProjection?.novelId ?? null;
+  const directorTaskId = focusProjection?.latestTask?.id ?? null;
+
+  const diversityReportQuery = useQuery({
+    queryKey: novelId ? queryKeys.novels.chapterTitleDiversityReport(novelId) : ["chapter-title-diversity-report", "none"],
+    queryFn: () => getChapterTitleDiversityReport(novelId as string),
+    enabled: Boolean(novelId),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const diversityReport = diversityReportQuery.data?.data ?? null;
+  const diversityIssues = diversityReport?.issues ?? [];
+
+  const [autoRepairPending, setAutoRepairPending] = useState(false);
+  const autoRepairTimerRef = useRef<number | null>(null);
+  const autoRepairFiredRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    return () => {
+      if (autoRepairTimerRef.current) {
+        window.clearTimeout(autoRepairTimerRef.current);
+        autoRepairTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    autoRepairFiredRef.current = {};
+  }, [novelId]);
+
+  useEffect(() => {
+    if (!diversityReport || !diversityReport.hasIssue || diversityIssues.length === 0) return;
+    if (!directorTaskId || !novelId) return;
+    if (autoRepairPending) return;
+    let autoRepairDisabled = false;
+    try {
+      autoRepairDisabled = window.localStorage.getItem("aicockpit-auto-repair-disabled") === "1";
+    } catch { /* ignore */ }
+    if (autoRepairDisabled) return;
+    const issue = diversityIssues[0];
+    if (!issue) return;
+    const key = `${novelId}:${issue.volumeId}`;
+    if (autoRepairFiredRef.current[key]) return;
+    let last = 0;
+    try {
+      const stored = window.localStorage.getItem(`aicockpit-auto-repair:${key}`);
+      last = stored ? Number(stored) : 0;
+    } catch {
+      last = 0;
+    }
+    if (last && Date.now() - last < 30 * 60 * 1000) {
+      autoRepairFiredRef.current[key] = last;
+      return;
+    }
+    if (autoRepairTimerRef.current) {
+      window.clearTimeout(autoRepairTimerRef.current);
+    }
+    autoRepairTimerRef.current = window.setTimeout(() => {
+      autoRepairTimerRef.current = null;
+      autoRepairFiredRef.current[key] = Date.now();
+      try {
+        window.localStorage.setItem(`aicockpit-auto-repair:${key}`, String(Date.now()));
+      } catch { /* ignore quota / disabled storage */ }
+      setAutoRepairPending(true);
+      repairNovelWorkflowChapterTitles(directorTaskId, { volumeId: issue.volumeId })
+        .catch(() => { /* swallow; user can manually retry */ })
+        .finally(() => setAutoRepairPending(false));
+    }, 1500);
+  }, [diversityReport, diversityIssues, directorTaskId, novelId, autoRepairPending]);
+
+  const fireManualRepair = (volumeId: string) => {
+    if (!directorTaskId) return;
+    setAutoRepairPending(true);
+    repairNovelWorkflowChapterTitles(directorTaskId, { volumeId })
+      .catch(() => { /* swallow */ })
+      .finally(() => setAutoRepairPending(false));
+  };
 
   if (!focusProjection) {
     return (
@@ -367,6 +450,39 @@ export default function AICockpit(props: AICockpitProps) {
       <div className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
         {reason}
       </div>
+
+      {!isCompact && diversityIssues.length > 0 ? (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+          <div className="flex items-center gap-1 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            章节标题需要关注
+          </div>
+          {diversityIssues.map((issue, idx) => (
+            <div key={`${issue.volumeId}:${idx}`} className="mt-1 text-amber-900/90">
+              第 {issue.volumeOrder} 卷：{issue.message}
+            </div>
+          ))}
+          {directorTaskId ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              disabled={autoRepairPending}
+              onClick={() => {
+                const first = diversityIssues[0];
+                if (first) fireManualRepair(first.volumeId);
+              }}
+            >
+              <Wand2 className="mr-1 h-3.5 w-3.5" />
+              {autoRepairPending ? "已入队，等待后台处理..." : "立即修复"}
+            </Button>
+          ) : null}
+          {autoRepairPending ? (
+            <div className="mt-1 text-amber-900/80">系统正在并行自动修复，不影响当前任务。</div>
+          ) : null}
+        </div>
+      ) : null}
 
       {!isCompact && focusProjection.progressSummary ? (
         <div className="mt-2 text-xs leading-5 text-muted-foreground">{focusProjection.progressSummary}</div>

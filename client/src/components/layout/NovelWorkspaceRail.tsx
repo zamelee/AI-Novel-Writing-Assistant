@@ -14,7 +14,7 @@ import type { VolumePlan } from "@ai-novel/shared/types/novel";
 import type { UnifiedTaskDetail } from "@ai-novel/shared/types/task";
 import { getNovelDetail, getNovelQualityReport, getNovelVolumeWorkspace } from "@/api/novel";
 import { getDirectorBookAutomationProjection, getDirectorRuntimeProjection, getDirectorTaskSnapshot } from "@/api/novelDirector";
-import { continueNovelWorkflow, getActiveAutoDirectorTask } from "@/api/novelWorkflow";
+import { continueNovelWorkflow, getActiveAutoDirectorTask, getLatestAutoDirectorTask } from "@/api/novelWorkflow";
 import { queryKeys } from "@/api/queryKeys";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -159,6 +159,12 @@ export default function NovelWorkspaceRail(props: NovelWorkspaceRailProps) {
         : false;
     },
   });
+  const latestTaskQuery = useQuery({
+    queryKey: queryKeys.novels.autoDirectorTaskLatest(novelId),
+    queryFn: () => getLatestAutoDirectorTask(novelId),
+    enabled: Boolean(novelId),
+    refetchInterval: 60_000,
+  });
   const bookAutomationQuery = useQuery({
     queryKey: queryKeys.novels.directorBookAutomation(novelId),
     queryFn: () => getDirectorBookAutomationProjection(novelId),
@@ -177,6 +183,9 @@ export default function NovelWorkspaceRail(props: NovelWorkspaceRailProps) {
     ? activeTaskQuery.data?.data ?? null
     : null;
   const activeTask = latestActiveTask?.status === "cancelled" ? null : latestActiveTask;
+  const latestTerminalTask = latestTaskQuery.isFetchedAfterMount
+    ? (latestTaskQuery.data?.data?.status === "cancelled" ? null : latestTaskQuery.data?.data ?? null)
+    : null;
   const latestBookAutomationProjection = bookAutomationQuery.data?.data?.projection ?? null;
   const bookAutomationProjection = latestBookAutomationProjection?.status === "cancelled"
     ? null
@@ -188,6 +197,9 @@ export default function NovelWorkspaceRail(props: NovelWorkspaceRailProps) {
     if (activeTask) {
       return bookAutomationProjection;
     }
+    if (latestTerminalTask) {
+      return bookAutomationProjection;
+    }
     return shouldShowBookAutomationProjectionWithoutActiveTask({
       status: bookAutomationProjection.status,
       latestTaskId: bookAutomationProjection.latestTask?.id ?? null,
@@ -195,7 +207,7 @@ export default function NovelWorkspaceRail(props: NovelWorkspaceRailProps) {
     })
       ? bookAutomationProjection
       : null;
-  }, [activeTask, bookAutomationProjection, requestedDirectorTaskId]);
+  }, [activeTask, latestTerminalTask, bookAutomationProjection, requestedDirectorTaskId]);
   const runtimeProjectionQuery = useQuery({
     queryKey: queryKeys.tasks.directorRuntime(activeTask?.id ?? "none"),
     queryFn: () => getDirectorRuntimeProjection(activeTask?.id as string),

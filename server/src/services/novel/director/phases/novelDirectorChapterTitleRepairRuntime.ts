@@ -1,5 +1,4 @@
 import type { DirectorConfirmRequest } from "@ai-novel/shared/types/novelDirector";
-import { isChapterTitleDiversityIssue } from "../../volume/chapterTitleDiversity";
 import type { NovelVolumeService } from "../../volume/NovelVolumeService";
 import type { NovelWorkflowService } from "../../workflow/NovelWorkflowService";
 import {
@@ -86,12 +85,12 @@ export class NovelDirectorChapterTitleRepairRuntime {
       throw new Error("当前自动导演任务缺少恢复 AI 修复所需的上下文。");
     }
 
+    // taskHasTitleWarning 守卫已移除（R7 设计变更）。
+    // 修复章节标题现在被视为通用的"重新生成章节列表"规划动作，
+    // 不再要求任务之前留下 diversity 错误痕迹。
+    // 审计由 DirectorRunCommand 表承担（enqueue time / payload / status）。
+    // 保留 notice 用于 fallback volumeId 解析。
     const notice = seedPayload.taskNotice;
-    const taskHasTitleWarning = notice?.code === "CHAPTER_TITLE_DIVERSITY"
-      || isChapterTitleDiversityIssue(row.lastError);
-    if (!taskHasTitleWarning) {
-      throw new Error("当前任务没有可直接 AI 修复的章节标题提醒。");
-    }
 
     const requestedVolumeId = input?.volumeId?.trim() || null;
     const resumeTarget = mergeResumeTargets(

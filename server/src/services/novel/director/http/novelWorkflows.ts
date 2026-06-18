@@ -6,6 +6,9 @@ import { validate } from "../../../../middleware/validate";
 import { DirectorCommandService } from "../commands/DirectorCommandService";
 import { NovelWorkflowService } from "../../workflow/NovelWorkflowService";
 import { NovelWorkflowTaskAdapter } from "../../../task/adapters/NovelWorkflowTaskAdapter";
+import { NovelVolumeService } from "../../volume/NovelVolumeService";
+import { getChapterTitleDiversityIssue } from "../../volume/chapterTitleDiversity";
+import { DirectorInspectorService } from "../runtime/DirectorInspectorService";
 
 const router = Router();
 const workflowService = new NovelWorkflowService();
@@ -165,4 +168,87 @@ router.post("/sync-stage", validate({ body: syncStageSchema }), async (req, res,
   }
 });
 
+
+router.get("/novels/:novelId/auto-director/latest", validate({ params: novelParamsSchema }), async (req, res, next) => {
+  try {
+    const { novelId } = req.params as z.infer<typeof novelParamsSchema>;
+    const row = await workflowService.findLatestVisibleTaskByNovelId(novelId, "auto_director");
+    const data = row ? await workflowAdapter.detail(row.id, { seedPayloadMode: "compact" }) : null;
+    res.status(200).json({
+      success: true,
+      data,
+      message: data ? "Latest auto director task loaded." : "No auto director task found.",
+    } satisfies ApiResponse<typeof data>);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/novels/:novelId/chapter-titles/diversity-report", validate({ params: novelParamsSchema }), async (req, res, next) => {
+  try {
+    const { novelId } = req.params as z.infer<typeof novelParamsSchema>;
+    const volumeService = new NovelVolumeService();
+    const workspace = await volumeService.getVolumes(novelId);
+    const issues = [];
+    for (const volume of workspace.volumes ?? []) {
+      const entries = (volume.chapters ?? [])
+        .map((chapter) => ({ order: chapter.chapterOrder, title: chapter.title ?? "" }))
+        .filter((entry) => entry.title && entry.title.trim().length > 0);
+      const issue = getChapterTitleDiversityIssue(entries);
+      if (!issue) continue;
+      const chapterOrders = (issue.duplicate && issue.duplicate.orders) ? issue.duplicate.orders : entries.map((e) => e.order);
+      const exampleTitles = issue.duplicate ? [issue.duplicate.title] : entries.slice(0, 3).map((e) => e.title);
+      issues.push({
+        type: issue.type,
+        message: issue.message,
+        volumeOrder: volume.sortOrder,
+        volumeId: volume.id,
+        chapterOrders,
+        exampleTitles,
+      });
+    }
+    const data = { hasIssue: issues.length > 0, issues };
+    res.status(200).json({
+      success: true,
+      data,
+      message: data.hasIssue ? "Chapter title diversity issues detected." : "No chapter title diversity issues.",
+    } satisfies ApiResponse<typeof data>);
+  } catch (error) {
+    next(error);
+  }
+});
+
+const inspectorService = new DirectorInspectorService();
+
+router.get("/novels/:novelId/director/inspector", validate({ params: novelParamsSchema }), async (req, res, next) => {
+  try {
+    const { novelId } = req.params as z.infer<typeof novelParamsSchema>;
+    const data = await inspectorService.getSnapshot(novelId);
+    res.status(200).json({
+      success: true,
+      data,
+      message: "Director runtime inspector snapshot loaded.",
+    } satisfies ApiResponse<typeof data>);
+  } catch (error) { next(error); }
+});
+
+router.get("/novels/:novelId/director/locks", validate({ params: novelParamsSchema }), async (req, res, next) => {
+  try {
+    const { novelId } = req.params as z.infer<typeof novelParamsSchema>;
+    const snapshot = await inspectorService.getSnapshot(novelId);
+    const data = { locks: snapshot.activeLocks, releasableCount: snapshot.counts.releasableLocks };
+    res.status(200).json({ success: true, data, message: "Director runtime locks loaded." } satisfies ApiResponse<typeof data>);
+  } catch (error) { next(error); }
+});
+
+// Lock key is base64url with dots; express path-to-regexp does not support :key(*) wildcards.
+// Pass key in request body instead so the URL stays simple and the route stays unambiguous.
+const releaseLockBodySchema = z.object({ key: z.string().trim().min(1), novelId: z.string().trim().min(1), actorTaskId: z.string().trim().optional() });
+router.post("/director/locks/release", validate({ body: releaseLockBodySchema }), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof releaseLockBodySchema>;
+    const data = await inspectorService.releaseLock({ key: body.key, novelId: body.novelId, actorTaskId: body.actorTaskId ?? null });
+    res.status(data.released ? 200 : 409).json({ success: data.released, data, message: data.released ? "Lock released." : "Lock release rejected: " + (data.reason ?? "unknown") } satisfies ApiResponse<typeof data>);
+  } catch (error) { next(error); }
+});
 export default router;
