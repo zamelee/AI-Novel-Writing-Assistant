@@ -103,9 +103,12 @@ class LauncherApp:
         self.paned = tk.PanedWindow(self.root, orient="vertical", bg=COLORS["sash"],
                                     sashwidth=5, sashrelief="flat")
         self.paned.pack(fill="both", expand=True, padx=6, pady=(3, 6))
-        self.server_panel = LogPanel(self.paned, "Server \u00b7 Express", "#60a5fa")
-        self.client_panel = LogPanel(self.paned, "Client \u00b7 Vite", "#a78bfa")
-        self.qdrant_panel = LogPanel(self.paned, "Qdrant \u00b7 Vector DB", "#ec4899")
+        self.server_panel = LogPanel(self.paned, "Server \u00b7 Express", "#60a5fa",
+                                     restart_cmd=lambda: self.restart_server())
+        self.client_panel = LogPanel(self.paned, "Client \u00b7 Vite", "#a78bfa",
+                                     restart_cmd=lambda: self.restart_client())
+        self.qdrant_panel = LogPanel(self.paned, "Qdrant \u00b7 Vector DB", "#ec4899",
+                                     restart_cmd=lambda: self.restart_qdrant())
         self.llm_panel = LogPanel(self.paned, "LLM \u00b7 AI \u901a\u4fe1", "#38bdf8", wrap_mode="none", show_hscroll=True)
         self.paned.add(self.server_panel, stretch="always", minsize=80)
         self.paned.add(self.client_panel, stretch="always", minsize=80)
@@ -297,6 +300,24 @@ class LauncherApp:
 
     def start_client(self):
         self._start_proc("Client", CLIENT_CMD, REPO_ROOT, self.client_panel, 5173, CLIENT_LOG, "client")
+
+    def _do_restart(self, name, stop_fn, start_fn, delay_ms=800):
+        """Block A: stop → wait → start 一个服务。
+        在 panel 上粉色输出"Restart 中"状态。
+        """
+        self.server_panel.append("─" * 40, "INFO")
+        self.server_panel.append("Restarting {} ...".format(name), "INFO")
+        stop_fn()
+        self.root.after(delay_ms, start_fn)
+
+    def restart_server(self):
+        self._do_restart("Server", self.stop_server, self.start_server)
+
+    def restart_client(self):
+        self._do_restart("Client", self.stop_client, self.start_client)
+
+    def restart_qdrant(self):
+        self._do_restart("Qdrant", self.stop_qdrant, self.start_qdrant)
 
     def start_all(self):
         self.start_qdrant()
