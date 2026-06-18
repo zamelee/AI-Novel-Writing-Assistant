@@ -34,6 +34,7 @@ from launcher_gui import (
     SERVER_CMD, CLIENT_CMD, QDRANT_CMD,
 )
 
+from launcher_api import LauncherApi
 from launcher_lib import (
     find_pids_on_port, kill_pids, free_port, is_port_listening,
     build_child_env, server_env, client_env, default_cmd_windows,
@@ -147,6 +148,7 @@ class LauncherApp:
         self.llm_tail_running = False
         self.llm_file = None
         self.llm_offset = 0
+        self.api = None
         self.log_queue = queue.Queue()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         atexit.register(self._force_cleanup)
@@ -170,6 +172,7 @@ class LauncherApp:
 
     def _auto_start(self):
         self._cleanup_orphans()
+        self._start_api()
         self.root.after(1500, self.start_all)
 
     def _cleanup_orphans(self):
@@ -500,8 +503,23 @@ class LauncherApp:
         self.running = False
         self.root.destroy()
 
+    def _start_api(self):
+        """Block D: 起内置 HTTP 只读 API(127.0.0.1:http_port)。"""
+        try:
+            log_paths = {"server": SERVER_LOG, "client": CLIENT_LOG, "qdrant": QDRANT_LOG}
+            self.api = LauncherApi(self.config, log_paths, repo_root=REPO_ROOT)
+            url = self.api.start()
+            self.server_panel.append("─" * 40, "INFO")
+            self.server_panel.append("HTTP API: {}".format(url), "SUCCESS")
+            self.server_panel.append("Token:    {}".format(self.config["auth_token"]), "LLM_TOKEN")
+        except Exception as e:
+            self.server_panel.append("HTTP API start failed: {}".format(e), "ERROR")
+
     def _force_cleanup(self):
         self._stop_llm_tail()
+        if self.api:
+            self.api.stop()
+            self.api = None
         for attr in ("server_proc", "client_proc", "qdrant_proc"):
             proc = getattr(self, attr, None)
             if proc and proc.poll() is None:
