@@ -25,6 +25,7 @@ if sys.stdout:
 # 复用 launcher_gui 里的 GUI 常量 + LogPanel(避免循环 import:这里不 import launcher_gui,
 # 通过 sys.path 把 tools/ 加进去后再 import)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from launcher_ui.llm_panel import LlmPanel
 from launcher_gui import (
     LogPanel, COLORS, TAG_COLORS, GUARD_PORTS, ANSI_RE,
     BASE, REPO_ROOT, TOOLS_DIR, LOGS_DIR,
@@ -133,7 +134,7 @@ class LauncherApp:
                                      restart_cmd=lambda: self.restart_client())
         self.qdrant_panel = LogPanel(self.paned, "Qdrant \u00b7 Vector DB", "#ec4899",
                                      restart_cmd=lambda: self.restart_qdrant())
-        self.llm_panel = LogPanel(self.paned, "LLM \u00b7 AI \u901a\u4fe1", "#38bdf8", wrap_mode="none", show_hscroll=True)
+        self.llm_panel = LlmPanel(self.paned, root=self.root)
         self.paned.add(self.server_panel, stretch="always", minsize=80)
         self.paned.add(self.client_panel, stretch="always", minsize=80)
         self.paned.add(self.qdrant_panel, stretch="always", minsize=80)
@@ -440,8 +441,8 @@ class LauncherApp:
     def _start_llm_tail(self):
         if self.llm_tail_running:
             return
-        self.llm_panel.append("\u2500" * 40, "LLM_TOKEN")
-        self.llm_panel.append("Watching: .logs/<today>/*.llm.jsonl", "LLM_TOKEN")
+        self.llm_panel.append_status("\u2500" * 40)
+        self.llm_panel.append_status("Watching: .logs/<today>/*.llm.jsonl")
         self.llm_panel.set_status(True)
         self.llm_tail_running = True
         self.llm_offset = 0
@@ -450,7 +451,7 @@ class LauncherApp:
 
     def _stop_llm_tail(self):
         if self.llm_tail_running:
-            self.llm_panel.append("--- LLM watch paused ---", "LLM_TOKEN")
+            self.llm_panel.append_status("--- LLM watch paused ---")
         self.llm_tail_running = False
         self.llm_panel.set_status(False)
 
@@ -461,37 +462,6 @@ class LauncherApp:
             return None
         cands = sorted(glob.glob(os.path.join(d, "*.llm.jsonl")), key=os.path.getmtime, reverse=True)
         return cands[0] if cands else None
-
-    def _format_llm(self, raw):
-        try:
-            j = json.loads(raw)
-        except Exception:
-            return (raw[:200] if raw else ""), "LLM_TOKEN"
-        route = j.get("route") or j.get("path") or "?"
-        status = j.get("statusCode") or j.get("status") or "?"
-        dur = j.get("durationMs")
-        inT = j.get("inputTokens")
-        outT = j.get("outputTokens")
-        provider = j.get("provider") or ""
-        model = j.get("model") or ""
-        err = j.get("error") or ""
-        parts = [route]
-        if provider or model:
-            parts.append("/".join(filter(None, [provider, model])))
-        head = " ".join(parts)
-        meta = []
-        if dur is not None:
-            meta.append("{}ms".format(int(dur)))
-        if inT is not None:
-            meta.append("in={}".format(inT))
-        if outT is not None:
-            meta.append("out={}".format(outT))
-        if err:
-            meta.append("err={}".format(str(err))[:60])
-        line = "{} {} {}".format(head, status, " ".join(meta))
-        is_err = (isinstance(status, int) and status >= 400) or err
-        tag = "ERROR" if is_err else "LLM"
-        return line, tag
 
     def _llm_tailer(self):
         while self.llm_tail_running:
@@ -512,8 +482,11 @@ class LauncherApp:
                                 stripped = raw.rstrip()
                                 if not stripped:
                                     continue
-                                line, tag = self._format_llm(stripped)
-                                self.log_queue.put((self.llm_panel, line, tag))
+                                # Block C: 直接 parse + add_event(不走 log_queue,LlmPanel 内部 after_idle)
+                                try:
+                                    self.llm_panel.add_event(json.loads(stripped))
+                                except Exception:
+                                    pass
                             self.llm_offset = fh.tell()
             except Exception:
                 pass

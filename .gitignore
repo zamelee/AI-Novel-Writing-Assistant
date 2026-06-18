@@ -39,3 +39,21 @@ server/prisma-diff-migrations-to-schema.sql
 .spec-workflow/
 .codex-backups/
 .cursor/
+
+# AI-Novel-Launcher build artifacts
+tools/launcher-build/
+# Qdrant binary (downloaded locally)
+tools/qdrant/qdrant.exe
+tools/qdrant/storage/
+tools/qdrant/qdrant.log
+tools/qdrant/qdrant.log.err
+tools/qdrant/qdrant.pid
+tools/qdrant/config.yaml
+
+# AI-Novel-Launcher (built by scripts/build-launcher-exe.ps1)
+AI-Novel-Launcher.exe
+
+# Python __pycache__
+tools/launcher_ui/__pycache__/
+tools/__pycache__/
+
