@@ -37,11 +37,16 @@ from launcher_lib import (
     find_pids_on_port, kill_pids, free_port, is_port_listening,
     build_child_env, server_env, client_env, default_cmd_windows,
 )
-from launcher_config import load_config, get_config_path
+from launcher_config import load_config, save_config, set_port, get_config_path
 
 
 class LauncherApp:
     def __init__(self):
+        self.config = load_config()  # Block B: %APPDATA%/AI-Novel-Launcher/config.json
+        self.server_port = self.config["server_port"]
+        self.client_port = self.config["client_port"]
+        self.qdrant_port = self.config["qdrant_port"]
+        self.http_port  = self.config["http_port"]
         self.root = tk.Tk()
         self.root.title("AI-Novel Launcher")
         try:
@@ -96,8 +101,27 @@ class LauncherApp:
                                activeforeground=COLORS["btn_fg"])
         mon_cb.pack(side="right", padx=(0, 8))
 
-        tk.Label(toolbar, text="Server:3000 | Client:5173 | Qdrant:6333 | LLM: .logs/", fg="#5a5a6e",
-                bg=COLORS["toolbar_bg"], font=("Consolas", 8)).pack(side="right", padx=10)
+        # Block B: ports entry + Apply (从 config 读初始值,改完写盘)
+        ports_frame = tk.Frame(toolbar, bg=COLORS["toolbar_bg"])
+        ports_frame.pack(side="right", padx=(0, 6))
+        tk.Label(ports_frame, text="Ports:", fg="#8a8a9e", bg=COLORS["toolbar_bg"],
+                font=("Segoe UI", 8)).pack(side="left", padx=(4, 2))
+        self._port_vars = {}
+        for key, default_label in (("server", "S"), ("client", "C"), ("qdrant", "Q")):
+            v = tk.StringVar(value=str(self.config[f"{key}_port"]))
+            self._port_vars[key] = v
+            tk.Label(ports_frame, text=f"{default_label}", fg="#5a5a6e", bg=COLORS["toolbar_bg"],
+                    font=("Consolas", 8)).pack(side="left", padx=(4, 0))
+            e = tk.Entry(ports_frame, textvariable=v, width=5, bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
+                    insertbackground=COLORS["text_cursor"], font=("Consolas", 9),
+                    relief="flat", borderwidth=0, justify="center")
+            e.pack(side="left", padx=(2, 0))
+            e.bind("<Return>", lambda ev, k=key: self._apply_port(k))
+            e.bind("<FocusOut>", lambda ev, k=key: self._apply_port(k))
+        tk.Button(ports_frame, text="Apply", command=self._apply_all_ports,
+                bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
+                activebackground=COLORS["btn_active"], activeforeground=COLORS["btn_fg"],
+                font=("Segoe UI", 8), relief="flat", borderwidth=0, padx=6, cursor="hand2").pack(side="left", padx=(6, 0))
 
         # 4 panes
         self.paned = tk.PanedWindow(self.root, orient="vertical", bg=COLORS["sash"],
@@ -227,8 +251,13 @@ class LauncherApp:
         try:
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             log_fh = open(log_file, "ab", buffering=0)
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
+            # Block B L1: 子进程 env 注入 PORT / QDRANT_URL / VITE_PORT
+            overrides = {}
+            if prefix == "server":
+                overrides = server_env(self.server_port, self.qdrant_port)
+            elif prefix == "client":
+                overrides = client_env(self.client_port, self.server_port)
+            env = build_child_env(overrides)
             proc = subprocess.Popen(
                 cmd, cwd=cwd, env=env,
                 stdout=log_fh, stderr=subprocess.STDOUT,
@@ -293,13 +322,13 @@ class LauncherApp:
         if not os.path.exists(QDRANT_CONFIG):
             self.qdrant_panel.append("Qdrant config not found: {}".format(QDRANT_CONFIG), "ERROR")
             return
-        self._start_proc("Qdrant", QDRANT_CMD, TOOLS_DIR, self.qdrant_panel, 6333, QDRANT_LOG, "qdrant")
+        self._start_proc("Qdrant", QDRANT_CMD, TOOLS_DIR, self.qdrant_panel, self.qdrant_port, QDRANT_LOG, "qdrant")
 
     def start_server(self):
-        self._start_proc("Server", SERVER_CMD, REPO_ROOT, self.server_panel, 3000, SERVER_LOG, "server")
+        self._start_proc("Server", SERVER_CMD, REPO_ROOT, self.server_panel, self.server_port, SERVER_LOG, "server")
 
     def start_client(self):
-        self._start_proc("Client", CLIENT_CMD, REPO_ROOT, self.client_panel, 5173, CLIENT_LOG, "client")
+        self._start_proc("Client", CLIENT_CMD, REPO_ROOT, self.client_panel, self.client_port, CLIENT_LOG, "client")
 
     def _do_restart(self, name, stop_fn, start_fn, delay_ms=800):
         """Block A: stop → wait → start 一个服务。
@@ -318,6 +347,28 @@ class LauncherApp:
 
     def restart_qdrant(self):
         self._do_restart("Qdrant", self.stop_qdrant, self.start_qdrant)
+
+    # ---- Block B: ports UI handlers ----
+    def _apply_port(self, key):
+        try:
+            new_val = int(self._port_vars[key].get())
+        except (ValueError, KeyError):
+            self.server_panel.append(f"Invalid port for {key}, ignored", "WARN")
+            return
+        if not (1 <= new_val <= 65535):
+            self.server_panel.append(f"Port {new_val} out of range, ignored", "WARN")
+            return
+        cfg_key = f"{key}_port"
+        if self.config[cfg_key] == new_val:
+            return
+        self.config = set_port(self.config, cfg_key, new_val)
+        setattr(self, cfg_key, new_val)
+        self.server_panel.append(
+            f"Port {key} set to {new_val} (saved). Restart {key} to apply.", "WARN")
+
+    def _apply_all_ports(self):
+        for key in ("server", "client", "qdrant"):
+            self._apply_port(key)
 
     def start_all(self):
         self.start_qdrant()
