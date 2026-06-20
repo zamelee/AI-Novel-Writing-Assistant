@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { condLog } from "./platform/logging/conditionalLog";
 import type { Server } from "node:http";
 import os from "node:os";
 import cors from "cors";
@@ -215,11 +216,11 @@ function resolveServerStartOptions(options?: ServerStartOptions): {
 }
 
 function logServerReady(host: string, port: number): void {
-  console.log(`[server] listening on http://localhost:${port}`);
+  condLog(`[server] listening on http://localhost:${port}`);
   if (host === "0.0.0.0" || host === "::") {
     const lanIp = getLanIp();
     if (lanIp) {
-      console.log(`[server] LAN: http://${lanIp}:${port}`);
+      condLog(`[server] LAN: http://${lanIp}:${port}`);
     }
   }
 }
@@ -260,7 +261,7 @@ function initializeBackgroundServices(): BackgroundServicesHandle {
   void ensureSystemResourceStarterData()
     .then((systemResourceReport) => {
       if (hasSystemResourceBootstrapChanges(systemResourceReport)) {
-        console.log("[server] built-in creative resources bootstrapped.", systemResourceReport);
+        condLog("[server] built-in creative resources bootstrapped.", systemResourceReport);
       }
     })
     .catch((error) => {
@@ -298,7 +299,7 @@ export async function startServer(options?: ServerStartOptions): Promise<Started
     ragCompatibilityReport.importedSettingKeys.length > 0
     || ragCompatibilityReport.importedProviderRecords.length > 0
   ) {
-    console.log("[server] imported legacy RAG env settings.", ragCompatibilityReport);
+    condLog("[server] imported legacy RAG env settings.", ragCompatibilityReport);
   }
 
   const app = createApp();

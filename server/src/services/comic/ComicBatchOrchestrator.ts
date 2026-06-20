@@ -1,4 +1,5 @@
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
+import { condLog } from "../../platform/logging/conditionalLog";
 import { prisma } from "../../db/prisma";
 import { AppError } from "../../middleware/errorHandler";
 import { comicPanelImageService } from "./ComicPanelImageService";
@@ -148,7 +149,7 @@ export class ComicBatchOrchestrator {
       },
     }).catch(() => {});
 
-    console.log(
+    condLog(
       `[comic.batch] job=${jobId} done=${progress.done} failed=${progress.failed} status=${finalStatus}`,
     );
   }

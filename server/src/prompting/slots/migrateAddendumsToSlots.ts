@@ -13,6 +13,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { condLog } from "../../platform/logging/conditionalLog";
 import { prisma } from "../../db/prisma";
 import { hashSlotDefault } from "./slotResolution";
 import type { PromptSlotOverrideEntry, PromptSlotOverrideMap } from "./slotTypes";
@@ -36,7 +37,7 @@ function force(): boolean {
 }
 
 function log(...args: unknown[]) {
-  console.log("[migrateAddendumsToSlots]", ...args);
+  condLog("[migrateAddendumsToSlots]", ...args);
 }
 
 type AddendumRow = {

@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { condLog } from "../../platform/logging/conditionalLog";
 import path from "path";
 
 import { prisma } from "../../db/prisma";
@@ -306,10 +307,10 @@ export class ComicPanelImageService {
         : "1024x1536";
       const uniqueRefImagePaths = Array.from(new Set(refImagePaths)).slice(0, 10);
 
-      console.log(`[comic.image] generating panel=${panelId} order=${panel.order} provider=${provider} model=${model} size=${imageSize}`);
-      console.log(`[comic.image] prompt: ${prompt}`);
+      condLog(`[comic.image] generating panel=${panelId} order=${panel.order} provider=${provider} model=${model} size=${imageSize}`);
+      condLog(`[comic.image] prompt: ${prompt}`);
       if (uniqueRefImagePaths.length > 0) {
-        console.log(`[comic.image] refImagePaths(${uniqueRefImagePaths.length}): ${uniqueRefImagePaths.join(", ")}`);
+        condLog(`[comic.image] refImagePaths(${uniqueRefImagePaths.length}): ${uniqueRefImagePaths.join(", ")}`);
       }
 
       const t0 = Date.now();
@@ -327,7 +328,7 @@ export class ComicPanelImageService {
       const imageUrl = result.images[0]?.url;
       if (!imageUrl) throw new Error("图片生成结果为空。");
 
-      console.log(`[comic.image] done panel=${panelId} elapsed=${elapsed}ms`);
+      condLog(`[comic.image] done panel=${panelId} elapsed=${elapsed}ms`);
 
       const ext = inferExtension(imageUrl);
       const localPath = path.join(comicPanelDir(panelId), `panel.${ext}`);

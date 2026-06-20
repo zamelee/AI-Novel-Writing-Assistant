@@ -1,4 +1,5 @@
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
+import { condLog } from "../../platform/logging/conditionalLog";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { prisma } from "../../db/prisma";
@@ -132,7 +133,7 @@ export class ComicFactService {
         })),
       });
 
-      console.log(`[comic.fact] extracted ${newFacts.length} facts for episode=${episodeId} order=${episode.order}`);
+      condLog(`[comic.fact] extracted ${newFacts.length} facts for episode=${episodeId} order=${episode.order}`);
     } catch (err) {
       // 事实提取失败不影响主流程
       console.warn(`[comic.fact] extraction failed for episode=${episodeId}:`, err);

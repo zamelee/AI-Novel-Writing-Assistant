@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { condLog } from "../platform/logging/conditionalLog";
 import { ensureRuntimeDatabaseReady } from "../db/runtimeMigrations";
 import { loadProviderApiKeys } from "../llm/factory";
 import { initializeRagSettingsCompatibility } from "../services/settings/RagCompatibilityBootstrapService";
@@ -45,7 +46,7 @@ export class DirectorWorker {
   }
 
   async start(): Promise<void> {
-    console.log(
+    condLog(
       `[director.worker] started workerId=${this.queue.workerId} slots=${this.queue.executionSlots} pollMs=${this.queue.pollMs} leaseMs=${this.queue.leaseMs}`,
     );
 
@@ -81,7 +82,7 @@ export class DirectorWorker {
       try {
         await this.queue.markRunning(command.id, slotId);
 
-        console.log(
+        condLog(
           `[director.worker] executing commandId=${command.id} type=${command.commandType} taskId=${command.taskId} novelId=${command.novelId} slot=${slotId}`,
         );
 
@@ -89,10 +90,10 @@ export class DirectorWorker {
 
         if (outcome === "cancelled") {
           await this.queue.cancelTask(command.id, slotId);
-          console.log(`[director.worker] cancelled commandId=${command.id}`);
+          condLog(`[director.worker] cancelled commandId=${command.id}`);
         } else {
           await this.queue.completeTask(command.id, slotId);
-          console.log(`[director.worker] completed commandId=${command.id}`);
+          condLog(`[director.worker] completed commandId=${command.id}`);
         }
       } finally {
         this.queue.releaseResourceGate(command.novelId, command.commandType);
