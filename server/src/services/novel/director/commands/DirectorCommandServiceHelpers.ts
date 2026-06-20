@@ -37,6 +37,11 @@ export interface DirectorCommandPayload {
     chapterId?: string | null;
     includeAiInterpretation?: boolean;
   };
+  foresightAuditRequest?: {
+    novelId: string;
+    volumeId?: string | null;
+    includeAiInterpretation?: boolean;
+  };
   volumeId?: string | null;
 }
 

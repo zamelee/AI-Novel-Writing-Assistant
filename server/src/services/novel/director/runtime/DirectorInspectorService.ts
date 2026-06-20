@@ -80,6 +80,70 @@ export interface InspectorLockRow {
   canSafelyRelease: boolean;
 }
 
+export interface DirectorForesightAuditSummary {
+  novelId: string;
+  taskId: string;
+  overdueCount: number;
+  pendingCount: number;
+  total: number;
+  lastAuditAt: string;
+  topItems: Array<{
+    id: string;
+    ledgerKey: string;
+    title: string;
+    currentStatus: "overdue" | "pending_payoff";
+    targetEndChapterOrder: number | null;
+    statusReason: string | null;
+  }>;
+}
+
+const FORESIGHT_AUDIT_TOP_LIMIT = 5;
+
+function readForesightAuditFromSeed(seedPayloadJson: string | null): DirectorForesightAuditSummary | null {
+  if (!seedPayloadJson) return null;
+  let raw: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(seedPayloadJson);
+    if (parsed && typeof parsed === "object") {
+      raw = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  const value = raw.foresightAudit;
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as Record<string, unknown>;
+  if (typeof snapshot.lastAuditAt !== "string") return null;
+  const items = Array.isArray(snapshot.items)
+    ? snapshot.items
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+        .map((entry) => ({
+          id: typeof entry.id === "string" ? entry.id : "",
+          ledgerKey: typeof entry.ledgerKey === "string" ? entry.ledgerKey : "",
+          title: typeof entry.title === "string" ? entry.title : "",
+          currentStatus: entry.currentStatus === "overdue" || entry.currentStatus === "pending_payoff"
+            ? entry.currentStatus
+            : "pending_payoff",
+          targetEndChapterOrder: typeof entry.targetEndChapterOrder === "number" ? entry.targetEndChapterOrder : null,
+          statusReason: typeof entry.statusReason === "string" ? entry.statusReason : null,
+        }))
+    : [];
+  const narrowedItems = items.map((entry) => ({
+    ...entry,
+    currentStatus: (entry.currentStatus === "overdue" ? "overdue" : "pending_payoff") as "overdue" | "pending_payoff",
+  }));
+  return {
+    novelId: typeof snapshot.novelId === "string" ? snapshot.novelId : "",
+    taskId: typeof snapshot.taskId === "string" ? snapshot.taskId : "",
+    overdueCount: typeof snapshot.overdueCount === "number" ? snapshot.overdueCount : 0,
+    pendingCount: typeof snapshot.pendingCount === "number" ? snapshot.pendingCount : 0,
+    total: typeof snapshot.total === "number" ? snapshot.total : 0,
+    lastAuditAt: snapshot.lastAuditAt,
+    topItems: narrowedItems.slice(0, FORESIGHT_AUDIT_TOP_LIMIT),
+  };
+}
+
 export interface DirectorInspectorSnapshot {
   novelId: string;
   generatedAt: string;
@@ -89,6 +153,7 @@ export interface DirectorInspectorSnapshot {
   inFlightInstances: InspectorInstanceRow[];
   recentExecutions: InspectorExecutionRow[];
   activeLocks: InspectorLockRow[];
+  foresightAudit: DirectorForesightAuditSummary | null;
   counts: {
     inFlight: number;
     waiting: number;
@@ -149,7 +214,7 @@ export class DirectorInspectorService {
 
     const tasks = await prisma.novelWorkflowTask.findMany({
       where: { novelId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, seedPayloadJson: true, updatedAt: true },
     });
     const taskIdList = tasks.map((row) => row.id);
     const taskStatusById = new Map<string, string>();
@@ -285,9 +350,19 @@ export class DirectorInspectorService {
       });
     }
 
+    const foresightAudit = (() => {
+      const candidates = tasks
+        .map((row) => readForesightAuditFromSeed(row.seedPayloadJson))
+        .filter((entry): entry is DirectorForesightAuditSummary => entry !== null);
+      if (candidates.length === 0) return null;
+      candidates.sort((a, b) => b.lastAuditAt.localeCompare(a.lastAuditAt));
+      return candidates[0];
+    })();
+
     return {
       novelId,
       generatedAt: nowIso,
+      foresightAudit,
       inFlightCommands: commandRows.filter((c) => c.isInFlight),
       waitingCommands: commandRows.filter((c) => c.isWaiting),
       recentCommands: commandRows.filter((c) => c.isTerminal).slice(0, RECENT_COMMAND_LIMIT),

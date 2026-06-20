@@ -1057,6 +1057,7 @@ export const DIRECTOR_RUN_COMMAND_TYPES = [
   "workspace_analysis",
   "manual_edit_impact",
   "repair_chapter_titles",
+  "audit_foresight_payoff",
   "cancel",
 ] as const;
 

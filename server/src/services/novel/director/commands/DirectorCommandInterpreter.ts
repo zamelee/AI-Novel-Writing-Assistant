@@ -18,6 +18,7 @@ export type DirectorPipelineCommandIntent =
   | "workspace_analysis"
   | "manual_edit_impact"
   | "repair_chapter_titles"
+  | "audit_foresight_payoff"
   | "cancel";
 
 export interface DirectorPipelineCommand {
@@ -46,6 +47,7 @@ const SUPPORTED_COMMANDS = new Set<DirectorPipelineCommandIntent>([
   "workspace_analysis",
   "manual_edit_impact",
   "repair_chapter_titles",
+  "audit_foresight_payoff",
   "cancel",
 ]);
 

@@ -156,6 +156,18 @@ export class DirectorCommandExecutor {
           volumeId: pipelineCommand.payload.volumeId,
         });
         return this.resolveCommandOutcome(pipelineCommand.taskId);
+      case "audit_foresight_payoff": {
+        const auditRequest = pipelineCommand.payload.foresightAuditRequest;
+        const snapshot = await this.directorService.executeForesightAudit(
+          pipelineCommand.taskId,
+          {
+            novelId: auditRequest?.novelId ?? pipelineCommand.novelId ?? null,
+            volumeId: auditRequest?.volumeId ?? pipelineCommand.payload.volumeId ?? null,
+          },
+        );
+        await this.recordCommandResult(pipelineCommand.taskId, pipelineCommand.id, snapshot);
+        return this.resolveCommandOutcome(pipelineCommand.taskId);
+      }
       case "policy_update": {
         const request = pipelineCommand.payload.policyUpdateRequest;
         if (!request) {

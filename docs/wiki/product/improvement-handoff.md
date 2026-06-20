@@ -475,6 +475,99 @@ inspector 是 per-novel 的，drawer 是全局任务列表的。两者之间如�
 
 ---
 
+## Q3 伏笔兑现审计（foresight payoff audit）实施沉淀
+
+### 背景
+
+《装乖失败后，高干上司红眼强留》在 director 跑到「节奏 / 拆章」阶段时，前台无可见信号说明这部书的伏笔账本里有多少 setup / hinted / pending_payoff / overdue / failed / paid_off 的状态。AI 评审员虽然能口头提示「还有 7 条 setup 没兑现」，但 audit 路径从未在 director runtime / inspector 层面被结构化地暴露过：
+
+1. 用户只能依赖 AI 评审员复述，没法在 inspector / 工作流水牌看到一组客观读数。
+2. 当 director 还在跑长链 LLM 步骤时，用户没法插队做一次轻量只读审计。
+3. 此前没有专门的 audit runtime，所有自动导演步骤都会触发 LLM，无法在不消耗 token 的前提下核对 ledger。
+
+PayoffLedgerSyncService.syncLedger() 会调 LLM 生成 ledger，不能用作 audit 入口；它的私有 loadLedgerRows 又只读、不可导出。所以决定新建一个轻量 audit runtime，只查 DB，不调 LLM，不写 task 状态，纯属「探测 → 入队 → 记录 quality debt」三步走的 C-min 模式。
+
+### 决策
+
+引入 `audit_foresight_payoff` 这一 director run command 类别，作为「不调 LLM、不阻断 director、只读 ledger 并把最近一次快照写回 task seedPayload」的轻量审计通道。
+
+链路：
+
+1. Shared types：`shared/types/directorRuntime.ts` 的 `DIRECTOR_RUN_COMMAND_TYPES` 数组追加 `"audit_foresight_payoff"`。
+2. Payload：`DirectorCommandPayload` 加可选字段 `foresightAuditRequest?: { novelId; volumeId?; includeAiInterpretation? }`。
+3. Interpreter：`DirectorCommandInterpreter` 把 `audit_foresight_payoff` 列为 `SUPPORTED_COMMANDS` 之一，让入队后的命令能被 dispatch。
+4. Runtime（新建）：`server/src/services/novel/director/phases/novelDirectorForesightAuditRuntime.ts`
+   - `auditForesightPayoff(taskId, input?)`
+   - 入参兜底：从 `workflowService.getTaskById(taskId).novelId` 读 novelId，缺失则抛错。
+   - 主查询：`prisma.payoffLedgerItem.findMany({ where: { novelId, currentStatus: { in: ["overdue", "pending_payoff"] } }, orderBy: [{currentStatus:"asc"},{updatedAt:"desc"}], take: 50, select: ... })`。
+   - 过滤 + 映射：构造 `NovelDirectorForesightAuditItem[]`，按 status 分桶计数 overdue / pending。
+   - 写回：把 `{ novelId, taskId, overdueCount, pendingCount, total, lastAuditAt, items }` 写进 task.seedPayloadJson 的 `foresightAudit` 字段；同时往 `directorCommandResults["foresightAudit:<ISO>"]` 留一条完成记录，便于未来回放。
+   - 不改 task.status，不写 checkpoint / runtime instance，不调 LLM。
+5. Service 集成：`NovelDirectorService` 新增 `private readonly foresightAuditRuntime` 字段与 `executeForesightAudit(taskId, input?)` 公开方法，对齐 `executeChapterTitleRepair` 的写法。
+6. Executor：`DirectorCommandExecutor.dispatch` 新增 `case "audit_foresight_payoff"`，调用 service 并 `recordCommandResult` 把 snapshot 写进 seedPayload。
+7. Inspector：`DirectorInspectorSnapshot` 加 `foresightAudit: DirectorForesightAuditSummary | null` 字段。`getSnapshot` 现在多 select 一列 `seedPayloadJson` + `updatedAt`，从所有 task 的 seedPayload 里读出 `foresightAudit`，按 `lastAuditAt` 倒序取最近一条。`topItems` 限制为前 5 条，字段裁剪到 inspector 真正会用到的 `id/ledgerKey/title/currentStatus/targetEndChapterOrder/statusReason`。
+
+### 关键约束
+
+- **不调 LLM**：audit 与 sync 边界要分清。Sync 仍归 `PayoffLedgerSyncService.syncLedger()`，audit 只读 ledger。
+- **不阻断 director**：audit 是「探测 + 入队 + 记录 quality debt」三步走的 C-min 模式，不抛错、不改 task.status、不开 checkpoint、不发事件、不写 runtime instance。
+- **TypeScript 共享枚举必须 rebuild**：`shared/types/directorRuntime.ts` 加 `"audit_foresight_payoff"` 后必须确保下游 `@ai-novel/shared` 重新发布，否则 server typecheck 会找不到新枚举值。本次 typecheck 通过（0 错误从 Q3 这边；剩 3 个 errors 在 `novelCoreCrudService.ts`，属于 Q7 novelNumber 路径的 pre-existing 问题）。
+- **数据契约**：`currentStatus` 是 `PayoffLedgerStatus` 枚举，TS 推断会把它收窄到 `{ setup | hinted | pending_payoff | paid_off | failed | overdue }`，但 `where: { currentStatus: { in: ["overdue","pending_payoff"] } }` 触发窄推断后，与 select 返回的宽类型对不齐。runtime 与 inspector 都用显式 narrowing / cast 解决，避免依赖 prisma 的窄推断。
+- **SeedPayload 复用**：`foresightAudit` 字段直接挂在 task 的 `seedPayloadJson` 里，让 inspector 无需新增独立表也能拿到最新快照；不需要 `DirectorRuntimeExecution` 或 `DirectorRuntimeCheckpoint` 配套。
+- **Idempotency**：audit 不写幂等键。多次调用是允许的（实际就是希望多次），每次写回会刷新 `lastAuditAt`。
+- **Top-N**：snapshot.items 上限 50，inspector.topItems 上限 5，避免 inspector payload 爆胀。
+
+### 与既有模式的对齐
+
+- 与 `repair_chapter_titles` 走完全相同的 `DirectorRunCommand → Interpreter → Executor.case → service.executeXxx → recordCommandResult` 主链路，唯一区别是不改 task.status。
+- 与 `chapterTitleDiversity` 的「轻量只读探测 + 写 quality debt」思路一致，区别在于 chapterTitleDiversity 已经接入了 director 的 quality 修复链，audit_foresight_payoff 暂不接，等后续 Phase 4 再考虑是否触发 `policy_update` 之类的闭环动作。
+- 不引入新 prompt、不修改 Prompt Registry。
+- 不新增数据迁移、不动 prisma schema。
+
+### Smoke 验证（不重启 dev server，DB 直读）
+
+`server/dev.db` 里《装乖失败后，高干上司红眼强留》（novelId `cmqhhasmw07f`）的 `PayoffLedgerItem` 实际数据：
+
+- `pending_payoff`：25 条（含 `chapter_payoff_ref_*`、`lu_mingxuan_family_pressure`、`volume1_open_payoff_2` 等）。
+- `overdue`：0 条。
+- `failed`：2 条（按 audit 范围外，仍由 ledger 保留）。
+- `hinted`：9 条、`paid_off`：10 条、`setup`：11 条。
+
+audit runtime 的查询路径会返回 25 条 `pending_payoff` + 0 条 `overdue` = total=25，overdueCount=0，pendingCount=25。`topItems` 显示前 5 条 setup/long-arc 伏笔标题，可直接用于 inspector / 工作流水牌 UI。
+
+### 当前卡点
+
+- 当前 task `cmqhh3vkv07f46omjbdmm7yi6` 仍卡在「节奏 / 拆章」阶段，`lastError="当前自动导演仍在运行中，请等待当前步骤完成后再发起标题修复。"`。这个错误是旧的 chapter_title_repair 高内存锁遗留，不是 audit_foresight_payoff 引起的。Q3 的 audit 命令是另一条独立链路，与该 task 的高内存锁互不影响；后续要么等 director 自然推进，要么用户手动开新 task 走 audit。
+
+### 失败模式与排查
+
+- 如果 inspector 返回 `foresightAudit: null`，意味着该 novel 还没有任何 task 写过 `foresightAudit` 字段。需要先入队一次 `audit_foresight_payoff` 命令。
+- 如果 audit 返回 overdueCount=0 但用户感觉有遗漏伏笔，注意 audit 只覆盖 ledger 的两类状态；setup/hinted 是「还未到该兑现」的伏笔，不计入 debt。需要 sync 生成新账本后再审计。
+- 如果 audit 写回 seedPayload 后 inspector 仍为 null，多半是 task.seedPayloadJson 不是合法 JSON（极少见）或 lastAuditAt 不是 string。runtime/inspector 都加了 try/catch 兜底，绝不会因为 audit 把 snapshot 接口打挂。
+
+### 下一步
+
+- commit：未经允许不动 git，但 diff 已净增 107 行（6 文件 + 1 新文件）。
+- 跟原项目对齐：等 dev server 重启后，inspector 新字段会自然出现在 /api/director/inspector 响应里，前端 inspector 抽屉可以直接读 `foresightAudit.topItems` 展示「待兑现伏笔」面板。
+- Phase 4 候选：把 audit_foresight_payoff 跟 chapter quality 修复链挂钩，当 overdueCount > 阈值时自动入队一次 `policy_update` 类的轻量修复命令。
+
+### 相关模块
+
+- `server/src/services/novel/director/phases/novelDirectorForesightAuditRuntime.ts`（新建）
+- `server/src/services/novel/director/NovelDirectorService.ts`（加 service 方法）
+- `server/src/services/novel/director/commands/DirectorCommandExecutor.ts`（加 dispatch case）
+- `server/src/services/novel/director/commands/DirectorCommandInterpreter.ts`（注册 SUPPORTED_COMMANDS）
+- `server/src/services/novel/director/commands/DirectorCommandServiceHelpers.ts`（payload 字段）
+- `server/src/services/novel/director/runtime/DirectorInspectorService.ts`（snapshot 字段）
+- `shared/types/directorRuntime.ts`（DIRECTOR_RUN_COMMAND_TYPES）
+- `server/src/services/payoff/PayoffLedgerSyncService.ts`（只读对照参考；audit 不复用 syncLedger）
+
+### 备份
+
+- `server/tmp/AGENTS-backups/2026-06-20-q2-cleanup/NovelDirectorService.ts.before-foresightAudit`
+- `server/tmp/AGENTS-backups/2026-06-20-q2-cleanup/DirectorCommandExecutor.ts.before-foresightAudit`
+- `server/tmp/AGENTS-backups/2026-06-20-q2-cleanup/DirectorInspectorService.ts.before-foresightAudit`
+
 ## 下阶段执行清单
 
 ### 立即（今天）

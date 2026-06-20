@@ -86,6 +86,7 @@ import { NovelDirectorCandidateRuntime } from "./runtime/novelDirectorCandidateR
 import { NovelDirectorPipelineRuntime } from "./novelDirectorPipelineRuntime";
 import { NovelDirectorConfirmRuntime } from "./runtime/novelDirectorConfirmRuntime";
 import { NovelDirectorChapterTitleRepairRuntime } from "./phases/novelDirectorChapterTitleRepairRuntime";
+import { NovelDirectorForesightAuditRuntime, type NovelDirectorForesightAuditSnapshot } from "./phases/novelDirectorForesightAuditRuntime";
 import { NovelDirectorContinueRuntime } from "./runtime/novelDirectorContinueRuntime";
 import { prisma } from "../../../db/prisma";
 import { loadPersistentDirectorRuntimeProjection } from "./projections/novelDirectorRuntimeProjection";
@@ -182,6 +183,9 @@ export class NovelDirectorService {
     buildDirectorSeedPayload: (directorInput, novelId, extra) => buildDirectorWorkflowSeedPayload(directorInput, novelId, extra),
     assertHighMemoryStartAllowed: (payload) => this.assertHighMemoryDirectorStartAllowed(payload),
     scheduleBackgroundRun: (taskId, runner) => this.scheduleBackgroundRun(taskId, runner),
+  });
+  private readonly foresightAuditRuntime = new NovelDirectorForesightAuditRuntime({
+    workflowService: this.workflowService,
   });
   private readonly continueRuntime = new NovelDirectorContinueRuntime({
     workflowService: this.workflowService,
@@ -419,6 +423,13 @@ export class NovelDirectorService {
     volumeId?: string | null;
   }): Promise<void> {
     return this.chapterTitleRepairRuntime.repairChapterTitles(taskId, input);
+  }
+
+  async executeForesightAudit(taskId: string, input?: {
+    novelId?: string | null;
+    volumeId?: string | null;
+  }): Promise<NovelDirectorForesightAuditSnapshot> {
+    return this.foresightAuditRuntime.auditForesightPayoff(taskId, input);
   }
 
   async getTakeoverReadiness(novelId: string): Promise<DirectorTakeoverReadinessResponse> {
