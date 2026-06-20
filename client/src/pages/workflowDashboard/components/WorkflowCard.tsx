@@ -51,7 +51,7 @@ export interface WorkflowCardProps {
   highlight?: boolean;
 }
 
-export default function WorkflowCard({ task, actions = [], highlight = false }: WorkflowCardProps) {
+export default function WorkflowCard({ task, actions = [], highlight = false, inspectorOpen, onToggleInspector }: WorkflowCardProps) {
   const statusInfo = STATUS_LABEL[task.status] ?? { label: task.status, variant: "outline" as const };
   const blockingReason = task.blockingReason?.trim() || task.failureSummary?.trim() || null;
   const stage = task.currentStage?.trim() || task.currentItemKey?.trim() || null;
@@ -95,7 +95,7 @@ export default function WorkflowCard({ task, actions = [], highlight = false }: 
           )}
         </div>
       </div>
-      {actions.length > 0 ? (
+      {(actions.length > 0 || onToggleInspector) ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {actions.map((action, index) => (
             <Button
@@ -108,6 +108,15 @@ export default function WorkflowCard({ task, actions = [], highlight = false }: 
               {action.label}
             </Button>
           ))}
+          {onToggleInspector ? (
+            <Button
+              size="sm"
+              variant={inspectorOpen ? "default" : "outline"}
+              onClick={onToggleInspector}
+            >
+              {inspectorOpen ? "隐藏 Runtime 详情" : "Runtime 详情"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>
