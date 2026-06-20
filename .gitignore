@@ -50,6 +50,7 @@ tools/qdrant/qdrant.log.err
 tools/qdrant/qdrant.pid
 tools/qdrant/config.yaml
 
+tools/qdrant/
 # AI-Novel-Launcher (built by scripts/build-launcher-exe.ps1)
 AI-Novel-Launcher.exe
 
