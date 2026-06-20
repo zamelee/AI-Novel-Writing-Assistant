@@ -534,6 +534,45 @@ PayoffLedgerSyncService.syncLedger() 会调 LLM 生成 ledger，不能用作 aud
 
 audit runtime 的查询路径会返回 12 条 `pending_payoff` + 0 条 `overdue` = total=12，overdueCount=0，pendingCount=12。`topItems` 显示前 5 条 chapter payoff 引用 + long-arc 伏笔标题，可直接用于 inspector / 工作流水牌 UI。
 
+### Phase 4 — 触发点与前端面板
+
+#### 背景
+
+Q3 后端全部完成（命令、运行时、inspector snapshot），但缺乏 HTTP 路由入口与前端触发。重启 launcher 之后用户仍然无法手动入队 audit_foresight_payoff，inspector 抽屉也不会渲染伏笔读数。
+
+#### 决策
+
+补齐后端 HTTP 入口 + 前端触发与渲染，跟 repair_chapter_titles 采用同一套五层模板：
+
+| 层 | 文件 | 动作 |
+|---|---|---|
+| 1. 后竫 enqueue 包装 | `server/src/services/novel/director/commands/DirectorCommandService.ts` | 新增 `enqueueForesightAuditCommand(taskId, { novelId, volumeId })` |
+| 2. 通用 HTTP 入口 | `server/src/services/novel/director/http/novelDirector.ts` | `appendCommandSchema` zod union 加 `commandType: "audit_foresight_payoff"`，switch case 加入序 |
+| 3. 便捷路由 | `server/src/services/novel/director/http/novelWorkflows.ts` | `POST /api/novel-workflows/:id/audit-foresight`，与 `repair-chapter-titles` 对称 |
+| 4. 前端 API 客户端 | `client/src/api/workflow/inspector.ts` | 新增 `triggerForesightAudit()`、`DirectorForesightAuditSummary` 类型、`DirectorInspectorSnapshot.foresightAudit` 字段 |
+| 5. 前端面板 + 按钮 | `client/src/pages/workflowDashboard/components/DirectorInspectorPanel.tsx` | 推序 button：“运行伏笔兑现审计” 与 “收起” 并排；价 audit 面板：计数 + 顶层1条目 |
+
+#### 验证
+
+- 服务端 typecheck：Q3 + Phase 4 新增代码 0 errors（剩 3 个 pre-existing 于 `novelCoreCrudService.ts`，Q7 novelNumber 范围）。
+- 客户端 typecheck + lint：0 errors / warnings。
+- 端到端 DB 验证（跳过 command queue，直接在 task `cmqhh3vkv07f46omjbdmm7yi6` 上写入 `seedPayloadJson.foresightAudit`）：
+  - 读取 `PayoffLedgerItem` 中 `currentStatus IN ('overdue','pending_payoff')`，该书实际返回 12 条 `pending_payoff` + 0 条 `overdue`；
+  - 写回 `seedPayloadJson` 后重读，inspector 能拿到 `foresightAudit.overdueCount=0 / pendingCount=12 / total=12`；
+  - 前端接口调用 `GET /api/novel-workflows/novels/:id/director/inspector` 即可返回该字段，“待兑现伏笔”面板会自动渲染。
+
+#### 与 Q3 的差别
+
+- Q3：后端命令 + 运行时 + inspector 读取数据。需要手动调 executor 或 LLM 脚本才能触发。
+- Phase 4：外加五层链路，让用户点一下“运行伏笔兑现审计”即可入队。
+- 未动 Prompt Registry / prisma schema / 业务语义，只动 zod union、enqueue 包装、HTTP 路由、前端类型与 JSX。
+
+#### 未来拓展
+
+- 多书全局审计：主页面“书架”上一键审计所有已开书的伏笔状态，返回一个多本书的伏笔梳理表。
+- 计划性触发：每写完 N 章后自动入队一次 audit，连接 director runtime 的阶段闭环。
+- 伏笔抵徒提醒：接上 policy_update 命令，当 overdueCount > 0 时自动入队一次 policy_update 以调整节奏。
+
 ### 当前卡点
 
 - 当前 task `cmqhh3vkv07f46omjbdmm7yi6` 仍卡在「节奏 / 拆章」阶段，`lastError="当前自动导演仍在运行中，请等待当前步骤完成后再发起标题修复。"`。这个错误是旧的 chapter_title_repair 高内存锁遗留，不是 audit_foresight_payoff 引起的。Q3 的 audit 命令是另一条独立链路，与该 task 的高内存锁互不影响；后续要么等 director 自然推进，要么用户手动开新 task 走 audit。
