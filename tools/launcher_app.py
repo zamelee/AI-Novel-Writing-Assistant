@@ -5,6 +5,8 @@
 """
 
 import atexit
+import glob
+import json
 import os
 import re
 import subprocess
@@ -77,10 +79,6 @@ class LauncherApp:
         self.btn_stop_all = ttk.Button(toolbar, text="Stop All", command=self.stop_all, state="disabled")
         self.btn_stop_all.pack(side="left", padx=(0, 4))
         ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8, pady=3)
-        ttk.Button(toolbar, text="Server", command=self.start_server).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Client", command=self.start_client).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Qdrant", command=self.start_qdrant).pack(side="left", padx=2)
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8, pady=3)
         ttk.Button(toolbar, text="Open Browser", command=self.open_browser).pack(side="left", padx=2)
         ttk.Button(toolbar, text="Kill Orphans", command=self._cleanup_orphans).pack(side="left", padx=2)
         ttk.Button(toolbar, text="Clear", command=self.clear_logs).pack(side="left", padx=2)
@@ -103,38 +101,30 @@ class LauncherApp:
                                activeforeground=COLORS["btn_fg"])
         mon_cb.pack(side="right", padx=(0, 8))
 
-        # Block B: ports entry + Apply (从 config 读初始值,改完写盘)
-        ports_frame = tk.Frame(toolbar, bg=COLORS["toolbar_bg"])
-        ports_frame.pack(side="right", padx=(0, 6))
-        tk.Label(ports_frame, text="Ports:", fg="#8a8a9e", bg=COLORS["toolbar_bg"],
-                font=("Segoe UI", 8)).pack(side="left", padx=(4, 2))
+        # Block B: 端口变量初始化(实际 UI 控件在各 panel header,见下方 LogPanel 实例化)
         self._port_vars = {}
-        for key, default_label in (("server", "S"), ("client", "C"), ("qdrant", "Q")):
-            v = tk.StringVar(value=str(self.config[f"{key}_port"]))
-            self._port_vars[key] = v
-            tk.Label(ports_frame, text=f"{default_label}", fg="#5a5a6e", bg=COLORS["toolbar_bg"],
-                    font=("Consolas", 8)).pack(side="left", padx=(4, 0))
-            e = tk.Entry(ports_frame, textvariable=v, width=5, bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
-                    insertbackground=COLORS["text_cursor"], font=("Consolas", 9),
-                    relief="flat", borderwidth=0, justify="center")
-            e.pack(side="left", padx=(2, 0))
-            e.bind("<Return>", lambda ev, k=key: self._apply_port(k))
-            e.bind("<FocusOut>", lambda ev, k=key: self._apply_port(k))
-        tk.Button(ports_frame, text="Apply", command=self._apply_all_ports,
-                bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
-                activebackground=COLORS["btn_active"], activeforeground=COLORS["btn_fg"],
-                font=("Segoe UI", 8), relief="flat", borderwidth=0, padx=6, cursor="hand2").pack(side="left", padx=(6, 0))
+        for key in ("server", "client", "qdrant"):
+            self._port_vars[key] = tk.StringVar(value=str(self.config[f"{key}_port"]))
 
         # 4 panes
         self.paned = tk.PanedWindow(self.root, orient="vertical", bg=COLORS["sash"],
                                     sashwidth=5, sashrelief="flat")
         self.paned.pack(fill="both", expand=True, padx=6, pady=(3, 6))
         self.server_panel = LogPanel(self.paned, "Server \u00b7 Express", "#60a5fa",
-                                     restart_cmd=lambda: self.restart_server())
+                                     restart_cmd=lambda: self.restart_server(),
+                                     restart_label="\u27f2 \u91cd\u542f\u672c\u670d\u52a1",
+                                     port_var=self._port_vars["server"],
+                                     port_apply_cmd=lambda: self._apply_port("server"))
         self.client_panel = LogPanel(self.paned, "Client \u00b7 Vite", "#a78bfa",
-                                     restart_cmd=lambda: self.restart_client())
+                                     restart_cmd=lambda: self.restart_client(),
+                                     restart_label="\u27f2 \u91cd\u542f\u672c\u670d\u52a1",
+                                     port_var=self._port_vars["client"],
+                                     port_apply_cmd=lambda: self._apply_port("client"))
         self.qdrant_panel = LogPanel(self.paned, "Qdrant \u00b7 Vector DB", "#ec4899",
-                                     restart_cmd=lambda: self.restart_qdrant())
+                                     restart_cmd=lambda: self.restart_qdrant(),
+                                     restart_label="\u27f2 \u91cd\u542f\u672c\u670d\u52a1",
+                                     port_var=self._port_vars["qdrant"],
+                                     port_apply_cmd=lambda: self._apply_port("qdrant"))
         self.llm_panel = LlmPanel(self.paned, root=self.root)
         self.paned.add(self.server_panel, stretch="always", minsize=80)
         self.paned.add(self.client_panel, stretch="always", minsize=80)
@@ -240,6 +230,40 @@ class LauncherApp:
             return True
         return self._panel_kill_pids(self.server_panel, port, pids)
 
+
+    @staticmethod
+    def _maybe_rotate_log(log_file, threshold_bytes=5 * 1024 * 1024, keep=3):
+        """Restart-time log rotation. Renames oversized logs to .YYYYMMDD-HHMMSS, keeps last `keep`."""
+        try:
+            if not os.path.exists(log_file):
+                return
+            size = os.path.getsize(log_file)
+            if size < threshold_bytes:
+                return
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            rotated = "{}.{}".format(log_file, ts)
+            try:
+                os.replace(log_file, rotated)
+            except OSError:
+                # If rename fails (file locked), skip silently
+                return
+            # Prune old rotated files, keep only the most recent `keep`
+            base = os.path.basename(log_file)
+            parent = os.path.dirname(log_file) or "."
+            rotated_files = []
+            for name in os.listdir(parent):
+                if name.startswith(base + ".") and name != base:
+                    rotated_files.append(os.path.join(parent, name))
+            rotated_files.sort(key=os.path.getmtime, reverse=True)
+            for old in rotated_files[keep:]:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+        except Exception:
+            # Rotation must never crash startup
+            pass
+
     def _start_proc(self, name, cmd, cwd, panel, port, log_file, prefix):
         proc_attr = prefix + "_proc"
         existing = getattr(self, proc_attr, None)
@@ -254,6 +278,7 @@ class LauncherApp:
         panel.append("Starting {} ...".format(name), tag)
         try:
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            self._maybe_rotate_log(log_file)
             log_fh = open(log_file, "ab", buffering=0)
             # Block B L1: 子进程 env 注入 PORT / QDRANT_URL / VITE_PORT
             overrides = {}
@@ -473,26 +498,45 @@ class LauncherApp:
                 if f and f != self.llm_file:
                     self.llm_file = f
                     self.llm_offset = 0
-                    self.log_queue.put((self.llm_panel, "Tracking {}...".format(os.path.basename(f)), "LLM_TOKEN"))
+                    try:
+                        sz = os.path.getsize(f)
+                    except OSError:
+                        sz = -1
+                    self.log_queue.put((self.llm_panel,
+                        "track -> {} (size={})".format(os.path.basename(f), sz),
+                        "LLM_TOKEN"))
                 if self.llm_file and os.path.exists(self.llm_file):
                     size = os.path.getsize(self.llm_file)
                     if size < self.llm_offset:
                         self.llm_offset = 0
                     if size > self.llm_offset:
+                        added = 0
+                        last_err = None
                         with open(self.llm_file, "r", encoding="utf-8", errors="replace") as fh:
                             fh.seek(self.llm_offset)
                             for raw in fh:
                                 stripped = raw.rstrip()
                                 if not stripped:
                                     continue
-                                # Block C: 直接 parse + add_event(不走 log_queue,LlmPanel 内部 after_idle)
                                 try:
                                     self.llm_panel.add_event(json.loads(stripped))
-                                except Exception:
-                                    pass
+                                    added += 1
+                                except Exception as e:
+                                    last_err = repr(e)
                             self.llm_offset = fh.tell()
-            except Exception:
-                pass
+                        if added:
+                            self.log_queue.put((self.llm_panel,
+                                "+{} events (offset={})".format(added, self.llm_offset),
+                                "LLM_TOKEN"))
+                        if last_err:
+                            self.log_queue.put((self.llm_panel,
+                                "[TAIL ERR] json: {}".format(last_err), "ERROR"))
+            except Exception as e:
+                try:
+                    self.log_queue.put((self.llm_panel,
+                        "[TAIL ERR] {}".format(repr(e)), "ERROR"))
+                except Exception:
+                    pass
             time.sleep(0.5)
 
     def _on_close(self):
@@ -527,3 +571,12 @@ class LauncherApp:
 
     def run(self):
         self.root.mainloop()
+
+
+
+
+
+
+
+
+
