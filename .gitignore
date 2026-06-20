@@ -57,3 +57,46 @@ AI-Novel-Launcher.exe
 tools/launcher_ui/__pycache__/
 tools/__pycache__/
 
+
+
+# Local debug artifacts (Python/MJS scripts used by Codex/AI tooling during one-off investigations)
+server/tmp/_*.py
+server/tmp/_*.mjs
+server/tmp/_*.txt
+server/tmp/_*.b64
+server/tmp/_*.patch
+server/tmp/_*.png
+server/tmp/AGENTS-backups/
+
+# Launcher pid and sidecar logs (the main launcher-*.log is tailed by the GUI and stays)
+tools/*.pid
+tools/.qdrant-initialized
+
+# One-off shell debug artifacts (used by Codex to read logs/screenshots during diagnosis)
+tools/se-*.log
+tools/se-*.err
+tools/se-*.out
+tools/pp*.err
+tools/pp*.out
+
+# Build/install typecheck log sidecars
+tools/dev-shared.log*
+tools/launcher-shared-build.log*
+tools/launcher-*.log.err
+tools/test-server.log
+tools/typecheck.log
+tools/install.log
+tools/prisma-push*.log
+
+
+# Additional debug artifact patterns (file extensions without underscore prefix)
+server/tmp/_*.ps1
+server/tmp/cmin_*.patch
+server/tmp/*.png
+server/tmp/*.b64
+server/tmp/code-backups/
+server/tmp/*.db
+client/tmp/
+client/tmp/**
+tools/tools/
+AI-Novel-Launcher*.exe

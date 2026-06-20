@@ -40,6 +40,7 @@ Wiki 不记录单次提交改了什么，也不替代 release notes。它只记�
 ### Product
 
 - [新手优先与整本小说完成原则](./product/beginner-first-novel-completion.md)
+- [产品改进与多轮决策沉淀](./product/improvement-handoff.md)
 
 ## 写作边界
 
