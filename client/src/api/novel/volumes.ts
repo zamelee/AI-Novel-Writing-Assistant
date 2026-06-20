@@ -24,6 +24,31 @@ export async function getNovelVolumeWorkspace(id: string) {
   return data;
 }
 
+export type ChapterTitleDiversityIssueType =
+  | "duplicate"
+  | "frame_cluster"
+  | "of_phrase_overuse"
+  | "basic_quality";
+
+export interface ChapterTitleDiversityReportIssue {
+  type: ChapterTitleDiversityIssueType;
+  message: string;
+  volumeOrder: number;
+  volumeId: string;
+  chapterOrders: number[];
+  exampleTitles: string[];
+}
+
+export interface ChapterTitleDiversityReport {
+  hasIssue: boolean;
+  issues: ChapterTitleDiversityReportIssue[];
+}
+
+export async function getChapterTitleDiversityReport(id: string) {
+  const { data } = await apiClient.get<ApiResponse<ChapterTitleDiversityReport>>(`/novel-workflows/novels/${id}/chapter-titles/diversity-report`);
+  return data;
+}
+
 export async function updateNovelVolumes(
   id: string,
   payload: Partial<VolumePlanDocument> & {

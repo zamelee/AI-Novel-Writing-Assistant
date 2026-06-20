@@ -28,8 +28,13 @@ function timestampOf(value?: string | null): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+const CASCADE_FAILURE_ERROR_PREFIX = "当前自动导演仍在运行中";
+
 function latestStep(steps: DirectorStepRun[]): DirectorStepRun | null {
   return steps.reduce<DirectorStepRun | null>((latest, step) => {
+    if (step.status === "failed" && step.error?.includes(CASCADE_FAILURE_ERROR_PREFIX)) {
+      return latest;
+    }
     if (!latest) {
       return step;
     }

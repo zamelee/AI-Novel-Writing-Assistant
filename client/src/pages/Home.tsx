@@ -482,7 +482,10 @@ export default function Home() {
             <Link to="/book-analysis">新建拆书</Link>
           </Button>
           <Button asChild variant="outline">
-            <Link to="/tasks">后台任务</Link>
+            <Link to="/workflow">工作流水牌</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/tasks">任务中心</Link>
           </Button>
           <Button asChild variant="outline">
             <Link to="/help">新手上路</Link>

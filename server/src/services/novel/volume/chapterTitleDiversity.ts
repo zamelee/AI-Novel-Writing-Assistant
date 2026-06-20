@@ -5,6 +5,26 @@ export type ChapterTitleSurfaceFrame =
   | "question_hook"
   | "plain_statement";
 
+export type ChapterTitleDiversityIssueType =
+  | "duplicate"
+  | "frame_cluster"
+  | "of_phrase_overuse"
+  | "basic_quality";
+
+export interface ChapterTitleDiversityEntry {
+  order: number;
+  title: string;
+}
+
+export interface ChapterTitleDiversityIssue {
+  type: ChapterTitleDiversityIssueType;
+  message: string;
+  duplicate?: {
+    title: string;
+    orders: number[];
+  };
+}
+
 const ENABLE_CHAPTER_TITLE_DIVERSITY_VALIDATION = true;
 const CHAPTER_TITLE_OF_PHRASE_PATTERN = /^[^，,：:？?的\s]{1,18}的[^，,：:？?的\s]{1,18}$/u;
 const CHAPTER_TITLE_MAX_CORE_CHARS = 16;
@@ -98,19 +118,34 @@ function formatFrameLabel(frame: ChapterTitleSurfaceFrame): string {
   return "“平铺直述型”";
 }
 
-export function getChapterTitleDiversityIssue(titles: string[]): string | null {
+export function getChapterTitleDiversityIssue(
+  entries: ChapterTitleDiversityEntry[],
+): ChapterTitleDiversityIssue | null {
   if (!ENABLE_CHAPTER_TITLE_DIVERSITY_VALIDATION) {
     return null;
   }
-  const normalizedTitles = titles.map(normalizeChapterTitle).filter(Boolean);
-  for (const title of normalizedTitles) {
-    const basicQualityIssue = getChapterTitleBasicQualityIssue(title);
+
+  // Build order index per normalized title (so duplicate detection can report all positions).
+  const ordersByNormalizedTitle = new Map<string, number[]>();
+  for (const entry of entries) {
+    const normalized = normalizeChapterTitle(entry.title);
+    if (!normalized) continue;
+    const list = ordersByNormalizedTitle.get(normalized) ?? [];
+    list.push(entry.order);
+    ordersByNormalizedTitle.set(normalized, list);
+  }
+
+  // Basic quality check: per entry, first failing wins.
+  for (const entry of entries) {
+    if (!entry.title) continue;
+    const basicQualityIssue = getChapterTitleBasicQualityIssue(entry.title);
     if (basicQualityIssue) {
-      return basicQualityIssue;
+      return { type: "basic_quality", message: basicQualityIssue };
     }
   }
 
-  if (normalizedTitles.length <= 1) {
+  const validNormalizedTitles = Array.from(ordersByNormalizedTitle.keys());
+  if (validNormalizedTitles.length <= 1) {
     return null;
   }
 
@@ -123,9 +158,11 @@ export function getChapterTitleDiversityIssue(titles: string[]): string | null {
   let maxFrameClusterCount = 0;
   let dominantClusterFrame: ChapterTitleSurfaceFrame | null = null;
 
-  for (const title of normalizedTitles) {
+  for (const entry of entries) {
+    const title = normalizeChapterTitle(entry.title);
+    if (!title) continue;
     if (seenTitles.has(title)) {
-      return `章节标题出现重复：${title}。请确保每章标题唯一。`;
+      return buildDuplicateIssue(ordersByNormalizedTitle, title, entry.title);
     }
     seenTitles.add(title);
 
@@ -156,13 +193,16 @@ export function getChapterTitleDiversityIssue(titles: string[]): string | null {
   }
 
   const ofPhraseCount = frameCounts.get("of_phrase") ?? 0;
-  const maxAllowedOfPhraseCount = maximumOfPhraseCount(normalizedTitles.length);
+  const maxAllowedOfPhraseCount = maximumOfPhraseCount(validNormalizedTitles.length);
   if (ofPhraseCount > maxAllowedOfPhraseCount) {
-    return [
-      `章节标题结构过于集中：${ofPhraseCount}/${normalizedTitles.length} 个标题使用了“X的Y / X中的Y”式结构。`,
-      ofPhraseExamples.length > 0 ? `重复骨架示例：${ofPhraseExamples.join("、")}。` : "",
-      "请降低这类标题占比，改用动作推进型、冲突压迫型、异常发现型、结果兑现型等不同章名。",
-    ].filter(Boolean).join("");
+    return {
+      type: "of_phrase_overuse",
+      message: [
+        `章节标题结构过于集中：${ofPhraseCount}/${validNormalizedTitles.length} 个标题使用了“X的Y / X中的Y”式结构。`,
+        ofPhraseExamples.length > 0 ? `重复骨架示例：${ofPhraseExamples.join("、")}。` : "",
+        "请降低这类标题占比，改用动作推进型、冲突压迫型、异常发现型、结果兑现型等不同章名。",
+      ].filter(Boolean).join(""),
+    };
   }
 
   let dominantFrame: ChapterTitleSurfaceFrame = "plain_statement";
@@ -174,22 +214,29 @@ export function getChapterTitleDiversityIssue(titles: string[]): string | null {
     }
   }
 
-  const maxAllowedSingleFrameCount = maximumSingleFrameCount(normalizedTitles.length);
+  const maxAllowedSingleFrameCount = maximumSingleFrameCount(validNormalizedTitles.length);
   if (dominantFrame !== "plain_statement" && dominantFrameCount > maxAllowedSingleFrameCount) {
     const examples = frameExamples.get(dominantFrame) ?? [];
-    return [
-      `章节标题结构过于集中：${dominantFrameCount}/${normalizedTitles.length} 个标题都落在 ${formatFrameLabel(dominantFrame)} 骨架上。`,
-      examples.length > 0 ? `重复骨架示例：${examples.join("、")}。` : "",
-      "请把标题改得更分散，混用动作推进型、冲突压迫型、异常发现型、结果兑现型、决断转向型等不同句法。",
-    ].filter(Boolean).join("");
+    return {
+      type: "frame_cluster",
+      message: [
+        `章节标题结构过于集中：${dominantFrameCount}/${validNormalizedTitles.length} 个标题都落在 ${formatFrameLabel(dominantFrame)} 骨架上。`,
+        examples.length > 0 ? `重复骨架示例：${examples.join("、")}。` : "",
+        "请把标题改得更分散，混用动作推进型、冲突压迫型、异常发现型、结果兑现型、决断转向型等不同句法。",
+      ].filter(Boolean).join(""),
+    };
   }
 
   if (maxFrameClusterCount > 3 && dominantClusterFrame && dominantClusterFrame !== "plain_statement") {
-    return `相邻章节标题结构过于重复：连续 ${maxFrameClusterCount} 个标题都在使用 ${formatFrameLabel(dominantClusterFrame)} 骨架。请把相邻章名改成不同句法。`;
+    return {
+      type: "frame_cluster",
+      message: `相邻章节标题结构过于重复：连续 ${maxFrameClusterCount} 个标题都在使用 ${formatFrameLabel(dominantClusterFrame)} 骨架。请把相邻章名改成不同句法。`,
+    };
   }
 
   return null;
 }
+
 
 export function isChapterTitleDiversityIssue(message: string | null | undefined): boolean {
   if (!ENABLE_CHAPTER_TITLE_DIVERSITY_VALIDATION) {
@@ -217,9 +264,40 @@ export function isBlockingChapterTitleQualityIssue(message: string | null | unde
     || normalized.includes("章节标题像剧情梗概");
 }
 
-export function assertChapterTitleDiversity(titles: string[]): void {
-  const issue = getChapterTitleDiversityIssue(titles);
+export function assertChapterTitleDiversity(entries: ChapterTitleDiversityEntry[]): void {
+  const issue = getChapterTitleDiversityIssue(entries);
   if (issue) {
-    throw new Error(issue);
+    throw new Error(issue.message);
   }
+}
+
+function buildDuplicateIssue(
+  ordersByNormalizedTitle: Map<string, number[]>,
+  normalizedTitle: string,
+  originalTitle: string,
+): ChapterTitleDiversityIssue {
+  const orders = (ordersByNormalizedTitle.get(normalizedTitle) ?? [])
+    .slice()
+    .sort((a, b) => a - b);
+  const orderList = orders.map((o) => `${o} 章`).join("、");
+  return {
+    type: "duplicate",
+    message: `章节标题出现重复："${normalizedTitle}"，出现在第 ${orderList}。请确保每章标题唯一。`,
+    duplicate: {
+      title: originalTitle.trim(),
+      orders,
+    },
+  };
+}
+
+export function formatChapterTitleDiversitySummary(issue: ChapterTitleDiversityIssue): string {
+  return issue.message;
+}
+
+export function isChapterTitleDiversityStructuredIssue(
+  value: unknown,
+): value is ChapterTitleDiversityIssue {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { type?: unknown; message?: unknown };
+  return typeof candidate.type === "string" && typeof candidate.message === "string";
 }

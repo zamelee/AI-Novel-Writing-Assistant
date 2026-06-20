@@ -56,6 +56,7 @@ const navGroups: NavGroup[] = [
       { to: "/comic", label: "漫画工作台", icon: SquareStack },
       { to: "/creative-hub", label: "创作中枢", icon: LayoutDashboard },
       { to: "/book-analysis", label: "拆书", icon: ScanSearch },
+      { to: "/workflow", label: "工作流水牌", icon: ListTodo },
       { to: "/tasks", label: "任务中心", icon: ListTodo },
       { to: "/auto-director/follow-ups", label: "导演跟进", icon: Workflow },
     ],
@@ -131,6 +132,25 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const failedIndexCount = knowledgeDocuments.filter((item) => item.latestIndexStatus === "failed").length;
 
   const renderBadge = (to: string) => {
+    if (to === "/workflow") {
+      if (failedTaskCount <= 0 && runningTaskCount <= 0) {
+        return null;
+      }
+      return (
+        <div className={cn("flex items-center gap-1", collapsed ? "absolute right-1 top-1" : "ml-auto")}>
+          {failedTaskCount > 0 ? (
+            <Badge variant="destructive" className={cn("h-5 px-1.5 text-[10px]", collapsed && "h-4 min-w-4 px-1 text-[9px]")}>
+              {collapsed ? failedTaskCount : `F${failedTaskCount}`}
+            </Badge>
+          ) : null}
+          {runningTaskCount > 0 ? (
+            <Badge variant="secondary" className={cn("h-5 px-1.5 text-[10px]", collapsed && "h-4 min-w-4 px-1 text-[9px]")}>
+              {collapsed ? runningTaskCount : `R${runningTaskCount}`}
+            </Badge>
+          ) : null}
+        </div>
+      );
+    }
     if (to === "/tasks") {
       if (runningTaskCount <= 0 && failedTaskCount <= 0) {
         return null;

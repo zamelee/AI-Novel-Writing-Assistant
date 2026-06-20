@@ -8,7 +8,11 @@ import {
   isFullBookAutopilotRunMode,
 } from "@ai-novel/shared/types/novelDirector";
 import type { VolumeGenerationPhaseEvent } from "../../volume/volumeModels";
-import { getChapterTitleDiversityIssue } from "../../volume/chapterTitleDiversity";
+import {
+  getChapterTitleDiversityIssue,
+  formatChapterTitleDiversitySummary,
+  type ChapterTitleDiversityIssue,
+} from "../../volume/chapterTitleDiversity";
 import { buildNovelEditResumeTarget } from "../../workflow/novelWorkflow.shared";
 import { logMemoryUsage } from "../../../../runtime/memoryTelemetry";
 import {
@@ -156,11 +160,11 @@ async function persistStructuredOutlineVolumeSnapshot(input: {
 
 function buildChapterTitleNotice(input: {
   volume: VolumePlanDocument["volumes"][number];
-  issue: string;
+  issue: ChapterTitleDiversityIssue;
 }): DirectorTaskNotice {
   return {
     code: "CHAPTER_TITLE_DIVERSITY",
-    summary: input.issue,
+    summary: formatChapterTitleDiversitySummary(input.issue),
     action: {
       type: "open_structured_outline",
       label: "快速修复章节标题",
@@ -337,7 +341,12 @@ export async function runDirectorStructuredOutlinePhase(input: {
       });
       const preparedVolume = workspace.volumes.find((item) => item.id === targetVolume.id);
       const titleDiversityIssue = preparedVolume
-        ? getChapterTitleDiversityIssue(preparedVolume.chapters.map((chapter) => chapter.title))
+        ? getChapterTitleDiversityIssue(
+            preparedVolume.chapters.map((chapter) => ({
+              order: chapter.chapterOrder,
+              title: chapter.title,
+            })),
+          )
         : null;
       await dependencies.workflowService.markTaskRunning(taskId, {
         stage: "structured_outline",

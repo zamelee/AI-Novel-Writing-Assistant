@@ -58,12 +58,18 @@ export interface ChapterBatchCheckpointRow {
 }
 
 export function buildChapterTitleDiversityTaskNotice(input: {
-  issue: string;
+  // Accept either a legacy string message (older lastError paths) or a
+  // structured ChapterTitleDiversityIssue. The structured branch uses
+  // issue.message so callers can show volume/chapter order info.
+  issue: string | { type: string; message: string };
   volumeId?: string | null;
 }) {
+  const summary = typeof input.issue === "string"
+    ? input.issue.trim()
+    : input.issue.message;
   return {
     code: "CHAPTER_TITLE_DIVERSITY",
-    summary: input.issue.trim(),
+    summary,
     action: {
       type: "open_structured_outline" as const,
       label: "快速修复章节标题",

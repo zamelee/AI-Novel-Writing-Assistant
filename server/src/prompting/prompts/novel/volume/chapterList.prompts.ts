@@ -451,11 +451,14 @@ export function createVolumeChapterListPrompt(
       });
 
       const titleDiversityIssue = getChapterTitleDiversityIssue(
-        output.chapters.map((chapter) => chapter.title),
+        output.chapters.map((chapter, index) => ({
+          order: index + 1,
+          title: chapter.title,
+        })),
       );
 
       if (titleDiversityIssue) {
-        throw new Error(titleDiversityIssue);
+        throw new Error(titleDiversityIssue.message);
       }
 
       const chapterFunctionQualityIssue = getChapterFunctionQualityIssue(

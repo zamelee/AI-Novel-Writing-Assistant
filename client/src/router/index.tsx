@@ -19,6 +19,7 @@ const CreativeHubPage = lazy(() => import("@/pages/creativeHub/CreativeHubPage")
 const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
 const BookAnalysisPage = lazy(() => import("@/pages/bookAnalysis/BookAnalysisPage"));
 const TaskCenterPage = lazy(() => import("@/pages/tasks/TaskCenterPage"));
+const WorkflowDashboardPage = lazy(() => import("@/pages/workflowDashboard/WorkflowDashboardPage"));
 const AutoDirectorFollowUpCenterPage = lazy(() => import("@/pages/autoDirectorFollowUps/AutoDirectorFollowUpCenterPage"));
 const KnowledgePage = lazy(() => import("@/pages/knowledge/KnowledgePage"));
 const GenreManagementPage = lazy(() => import("@/pages/genres/GenreManagementPage"));
@@ -55,6 +56,7 @@ const routes: RouteObject[] = [
       { path: "chat", element: <Navigate to="/creative-hub" replace /> },
       { path: "book-analysis", element: <BookAnalysisPage /> },
       { path: "tasks", element: <TaskCenterPage /> },
+      { path: "workflow", element: <WorkflowDashboardPage /> },
       { path: "auto-director/follow-ups", element: <AutoDirectorFollowUpCenterPage /> },
       { path: "auto-director/follow-up-center", element: <Navigate to="/auto-director/follow-ups" replace /> },
       { path: "auto-director/followup-center", element: <Navigate to="/auto-director/follow-ups" replace /> },

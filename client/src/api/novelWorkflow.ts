@@ -41,6 +41,11 @@ export async function getActiveAutoDirectorTask(novelId: string) {
   return data;
 }
 
+export async function getLatestAutoDirectorTask(novelId: string) {
+  const { data } = await apiClient.get<ApiResponse<UnifiedTaskDetail | null>>(`/novel-workflows/novels/${novelId}/auto-director/latest`);
+  return data;
+}
+
 export async function syncNovelWorkflowStage(payload: {
   novelId: string;
   stage: NovelWorkflowStage;

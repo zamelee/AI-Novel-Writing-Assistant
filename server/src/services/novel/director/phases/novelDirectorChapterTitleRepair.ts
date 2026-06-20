@@ -1,6 +1,9 @@
 import type { DirectorConfirmRequest } from "@ai-novel/shared/types/novelDirector";
 import { buildNovelEditResumeTarget } from "../../workflow/novelWorkflow.shared";
-import { getChapterTitleDiversityIssue } from "../../volume/chapterTitleDiversity";
+import {
+  getChapterTitleDiversityIssue,
+  type ChapterTitleDiversityIssue,
+} from "../../volume/chapterTitleDiversity";
 import type { NovelVolumeService } from "../../volume/NovelVolumeService";
 import type { NovelWorkflowService } from "../../workflow/NovelWorkflowService";
 import { buildDirectorSessionState } from "../runtime/novelDirectorHelpers";
@@ -114,7 +117,10 @@ export async function repairDirectorChapterTitles(input: {
   }
 
   const titleDiversityIssue = getChapterTitleDiversityIssue(
-    repairedVolume.chapters.map((chapter) => chapter.title),
+    repairedVolume.chapters.map((chapter) => ({
+      order: chapter.chapterOrder,
+      title: chapter.title,
+    })),
   );
   const pausedSession = buildDirectorSessionState({
     runMode: input.request.runMode,

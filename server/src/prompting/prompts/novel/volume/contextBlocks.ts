@@ -32,7 +32,7 @@ function guidanceBlock(guidance?: string): PromptContextBlock | null {
   return createContextBlock({
     id: "guidance",
     group: "guidance",
-    priority: 70,
+    priority: 88,
     content: `User guidance:\n${guidance.trim()}`,
   });
 }
