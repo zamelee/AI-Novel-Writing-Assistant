@@ -6,13 +6,16 @@
  import { toast } from '@/components/ui/toast'; 
  import { cn } from '@/lib/utils'; 
  import { queryKeys } from '@/api/queryKeys'; 
- import { 
-   getDirectorInspectorSnapshot, 
-   getDirectorInspectorLocks, 
-   releaseDirectorInspectorLock, 
-   type DirectorInspectorSnapshot, 
-   type InspectorLockRow, 
- } from '@/api/workflow/inspector'; 
+ import {
+  getDirectorInspectorSnapshot,
+  getDirectorInspectorLocks,
+  releaseDirectorInspectorLock,
+  triggerForesightAudit,
+  type DirectorForesightAuditSummary,
+  type DirectorInspectorSnapshot,
+  type InspectorLockRow,
+} from '@/api/workflow/inspector';
+import { getLatestAutoDirectorTask } from '@/api/novelWorkflow'; 
  
  const POLL_STORAGE_KEY = 'aicockpit-inspector-poll-ms'; 
  const DEFAULT_POLL_MS = 5000; 
@@ -189,7 +192,31 @@
      queryFn: () => getDirectorInspectorLocks(novelId), 
      refetchInterval: pollMs, 
      enabled: Boolean(novelId), 
-   }); 
+   });
+
+  const latestTaskQuery = useQuery({
+    queryKey: queryKeys.novels.autoDirectorTaskLatest(novelId),
+    queryFn: () => getLatestAutoDirectorTask(novelId),
+    refetchInterval: pollMs,
+    enabled: Boolean(novelId),
+  });
+
+  const triggerAuditMutation = useMutation({
+    mutationFn: (taskId: string) =>
+      triggerForesightAudit({ directorTaskId: taskId, novelId }),
+    onSuccess: async (data) => {
+      if (data?.success) {
+        toast.success("伏笔兑现审计已入队，等待后端写入快照。");
+        await queryClient.invalidateQueries({ queryKey: queryKeys.novels.directorInspector(novelId) });
+      } else {
+        toast.error("入队失败: " + (data?.message ?? "未知原因"));
+      }
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "入队失败";
+      toast.error(message);
+    },
+  }); 
  
    const releaseMutation = useMutation({ 
      mutationFn: (key: string) => releaseDirectorInspectorLock({ key, novelId }), 
@@ -219,7 +246,17 @@
    const locks = snapshot?.activeLocks ?? []; 
    const executions = snapshot?.recentExecutions ?? []; 
  
-   const lockSummary = useMemo(() => { 
+   const latestTask = latestTaskQuery.data?.data ?? null;
+  const latestTaskId = latestTask?.id ?? null;
+  const audit = snapshot?.foresightAudit ?? null;
+  const auditPendingCount = audit?.pendingCount ?? 0;
+  const auditOverdueCount = audit?.overdueCount ?? 0;
+  const auditTotal = audit?.total ?? 0;
+  const auditLastAt = audit?.lastAuditAt ?? null;
+  const auditTopItems = audit?.topItems ?? [];
+  const canTriggerAudit = Boolean(latestTaskId) && !triggerAuditMutation.isPending;
+
+  const lockSummary = useMemo(() => { 
      if (locks.length === 0) return { label: '空', variant: 'outline' as const }; 
      const releasable = locks.filter((l) => l.canSafelyRelease).length; 
      if (releasable > 0) return { label: releasable + ' 把可释放', variant: 'destructive' as const }; 
@@ -236,6 +273,22 @@
          <div className='flex flex-wrap items-center gap-2'> 
            <PollControl value={pollMs} onChange={setPollMs} /> 
            {onClose ? <Button size='sm' variant='outline' onClick={onClose}>收起</Button> : null} 
+
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!canTriggerAudit}
+            onClick={() => {
+              if (latestTaskId) {
+                triggerAuditMutation.mutate(latestTaskId);
+              } else {
+                toast.error("当前没有可供审计的自动导演任务。");
+              }
+            }}
+            title={latestTaskId ? "task=" + latestTaskId : "未找到最近任务"}
+          >
+            {triggerAuditMutation.isPending ? "伏笔审计中…" : "运行伏笔兑现审计"}
+          </Button>
          </div> 
        </div> 
  
@@ -343,7 +396,55 @@
            isPending={releaseMutation.isPending} 
          /> 
        ) : null} 
-     </div> 
+     
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardDescription>待兑现伏笔</CardDescription>
+              <CardTitle className="text-base">
+                {auditTotal} 条
+                {auditOverdueCount > 0 ? " (" + auditOverdueCount + " 逾期)" : ""}
+              </CardTitle>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {auditLastAt ? "上次审计: " + formatRelative(auditLastAt) : "从未审计"}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-1 text-xs">
+          {audit === null ? (
+            <div className="text-muted-foreground">
+              还没有运行过伏笔兑现审计。点右上角“运行伏笔兑现审计”可以轻量检查该书的伏笔账本，不会消耗 token 也不会中断自动导演。
+            </div>
+          ) : auditTopItems.length === 0 ? (
+            <div className="text-muted-foreground">待兑现伏笔为零，该书当前没有 overdue 或 pending_payoff 状态的伏笔。</div>
+          ) : (
+            auditTopItems.map((item) => (
+              <div key={item.id} className="flex flex-wrap items-center gap-2">
+                <Badge variant={item.currentStatus === "overdue" ? "destructive" : "secondary"}>
+                  {item.currentStatus === "overdue" ? "逾期" : "待兑现"}
+                </Badge>
+                <span className="font-medium">{item.title}</span>
+                {item.targetEndChapterOrder !== null ? (
+                  <span className="text-muted-foreground">目标章序 #{item.targetEndChapterOrder}</span>
+                ) : null}
+                {item.statusReason ? (
+                  <span className="text-muted-foreground truncate max-w-[260px]" title={item.statusReason}>
+                    {item.statusReason}
+                  </span>
+                ) : null}
+              </div>
+            ))
+          )}
+          {audit && auditTotal > auditTopItems.length ? (
+            <div className="text-muted-foreground">
+              还有 {auditTotal - auditTopItems.length} 条未在该面板显示，以计数为准。
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+</div> 
    ); 
  } 
  

@@ -143,6 +143,29 @@ router.post("/:id/repair-chapter-titles", validate({ params: continueParamsSchem
   }
 });
 
+const auditForesightBodySchema = z.object({
+  novelId: z.string().trim().min(1).optional(),
+  volumeId: z.string().trim().min(1).optional(),
+}).optional();
+
+router.post("/:id/audit-foresight", validate({ params: continueParamsSchema, body: auditForesightBodySchema }), async (req, res, next) => {
+  try {
+    const { id } = req.params as z.infer<typeof continueParamsSchema>;
+    const body = req.body as z.infer<typeof auditForesightBodySchema> | undefined;
+    const data = await directorCommandService.enqueueForesightAuditCommand(id, {
+      novelId: body?.novelId ?? null,
+      volumeId: body?.volumeId ?? null,
+    });
+    res.status(202).json({
+      success: true,
+      data,
+      message: "Foresight payoff audit accepted.",
+    } satisfies ApiResponse<typeof data>);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/sync-stage", validate({ body: syncStageSchema }), async (req, res, next) => {
   try {
     const body = req.body as z.infer<typeof syncStageSchema>;

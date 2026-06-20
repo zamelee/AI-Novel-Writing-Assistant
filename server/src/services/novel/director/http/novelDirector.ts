@@ -268,6 +268,15 @@ const appendCommandSchema = z.discriminatedUnion("commandType", [
   z.object({ commandType: z.literal("policy_update"), payload: runtimePolicySchema }),
   z.object({ commandType: z.literal("cancel"), payload: z.object({}).optional() }),
   z.object({ commandType: z.literal("repair_chapter_titles"), payload: z.object({ volumeId: z.string().trim().optional() }).optional() }),
+  z.object({
+    commandType: z.literal("audit_foresight_payoff"),
+    payload: z.object({
+      foresightAuditRequest: z.object({
+        novelId: z.string().trim().optional(),
+        volumeId: z.string().trim().optional(),
+      }).optional(),
+    }).optional(),
+  }),
 ]);
 
 function accepted<T>(data: T, message: string) {
@@ -375,6 +384,9 @@ router.post("/tasks/:taskId/commands", validate({ params: taskParamsSchema, body
         break;
       case "repair_chapter_titles":
         data = await commandService.enqueueChapterTitleRepairCommand(taskId, body.payload ?? {});
+        break;
+      case "audit_foresight_payoff":
+        data = await commandService.enqueueForesightAuditCommand(taskId, body.payload?.foresightAuditRequest ?? {});
         break;
       default:
         throw new Error("Unsupported director command type.");

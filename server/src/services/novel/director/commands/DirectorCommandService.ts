@@ -420,6 +420,24 @@ export class DirectorCommandService {
     });
   }
 
+  async enqueueForesightAuditCommand(taskId: string, input: {
+    novelId?: string | null;
+    volumeId?: string | null;
+  } = {}): Promise<DirectorCommandAcceptedResponse> {
+    const normalizedNovelId = input.novelId?.trim() || null;
+    const payload: Record<string, unknown> = {
+      foresightAuditRequest: {
+        novelId: normalizedNovelId ?? "",
+        volumeId: input.volumeId?.trim() || null,
+      },
+    };
+    return this.enqueueExecutionCommand({
+      taskId,
+      commandType: "audit_foresight_payoff",
+      payload: payload as DirectorCommandPayload,
+    });
+  }
+
   private async ensureCandidateTask(
     input: DirectorCandidatesRequest | DirectorRefinementRequest | DirectorCandidatePatchRequest | DirectorCandidateTitleRefineRequest,
     candidateStage: {

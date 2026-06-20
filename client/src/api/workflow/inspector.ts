@@ -71,6 +71,23 @@ export interface InspectorLockRow {
   canSafelyRelease: boolean;
 }
 
+export interface DirectorForesightAuditSummary {
+  novelId: string;
+  taskId: string;
+  overdueCount: number;
+  pendingCount: number;
+  total: number;
+  lastAuditAt: string;
+  topItems: Array<{
+    id: string;
+    ledgerKey: string;
+    title: string;
+    currentStatus: "overdue" | "pending_payoff";
+    targetEndChapterOrder: number | null;
+    statusReason: string | null;
+  }>;
+}
+
 export interface DirectorInspectorSnapshot {
   novelId: string;
   generatedAt: string;
@@ -80,6 +97,7 @@ export interface DirectorInspectorSnapshot {
   inFlightInstances: InspectorInstanceRow[];
   recentExecutions: InspectorExecutionRow[];
   activeLocks: InspectorLockRow[];
+  foresightAudit: DirectorForesightAuditSummary | null;
   counts: {
     inFlight: number;
     waiting: number;
@@ -119,6 +137,24 @@ export async function releaseDirectorInspectorLock(payload: { key: string; novel
   const { data } = await apiClient.post<ApiResponse<DirectorInspectorReleaseResponse>>(
     "/novel-workflows/director/locks/release",
     { key: payload.key, novelId: payload.novelId, actorTaskId: payload.actorTaskId },
+  );
+  return data;
+}
+
+export async function triggerForesightAudit(payload: {
+  directorTaskId: string;
+  novelId?: string;
+  volumeId?: string;
+}) {
+  const { data } = await apiClient.post<ApiResponse<{
+    commandId: string;
+    status: string;
+    taskId: string;
+    commandType: string;
+    acceptedAt: string;
+  }>>(
+    "/novel-workflows/" + payload.directorTaskId + "/audit-foresight",
+    { novelId: payload.novelId, volumeId: payload.volumeId },
   );
   return data;
 }
