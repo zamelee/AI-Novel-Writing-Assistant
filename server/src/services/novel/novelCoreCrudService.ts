@@ -225,8 +225,23 @@ export class NovelCoreCrudService {
       continuationBookAnalysisId: normalizedContinuationBookAnalysisId,
     });
 
+    const novelNumber = await allocateNovelNumber({
+      findMaxForBucket: async (bucket) => {
+        const row = await prisma.novel.findFirst({
+          where: { novelNumber: { startsWith: bucket + "-" } },
+          orderBy: { novelNumber: "desc" },
+          select: { novelNumber: true },
+        });
+        return row?.novelNumber ?? null;
+      },
+    });
+    if (!isValidNovelNumber(novelNumber.novelNumber)) {
+      throw new Error(`generated novelNumber is invalid: ${novelNumber.novelNumber}`);
+    }
+
     const created = await prisma.novel.create({
       data: {
+        novelNumber: novelNumber.novelNumber,
         title: input.title,
         description: input.description,
         targetAudience: normalizeOptionalTextForCreate(input.targetAudience),

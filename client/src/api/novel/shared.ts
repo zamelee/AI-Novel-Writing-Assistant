@@ -13,6 +13,7 @@ import type {
 export type NovelListItem = Pick<
   Novel,
   | "id"
+  | "novelNumber"
   | "title"
   | "description"
   | "targetAudience"

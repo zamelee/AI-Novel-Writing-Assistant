@@ -306,6 +306,7 @@ enum CharacterGender {
 
 model Novel {
   id                String      @id @default(cuid())
+  novelNumber      String?  @unique
   title             String
   description       String?
   targetAudience    String?

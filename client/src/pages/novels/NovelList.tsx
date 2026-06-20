@@ -389,9 +389,19 @@ export default function NovelList() {
               >
                 <CardHeader className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="line-clamp-1 text-lg transition hover:text-primary">
-                      {novel.title}
-                    </CardTitle>
+                    <div className="flex min-w-0 items-center gap-2">
+                      {novel.novelNumber ? (
+                        <span
+                          className="shrink-0 rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground"
+                          title="小说编号"
+                        >
+                          {novel.novelNumber}
+                        </span>
+                      ) : null}
+                      <CardTitle className="line-clamp-1 text-lg transition hover:text-primary">
+                        {novel.title}
+                      </CardTitle>
+                    </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <Badge variant={novel.status === "published" ? "default" : "secondary"}>
                         {novel.status === "published" ? "已发布" : "草稿"}
