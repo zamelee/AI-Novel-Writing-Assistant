@@ -6,6 +6,7 @@
 """
 
 import time
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk
 
@@ -83,6 +84,15 @@ class LlmPanel(ttk.Frame):
         self.text.configure(state="disabled")
         self.text.see("end")
 
+    def append_many(self, items):
+        """兼容 LogPanel.append_many:_poll 通过 log_queue 把 (line, tag) 列表路由过来。"""
+        for entry in items:
+            if len(entry) >= 2:
+                line, tag = entry[0], entry[1]
+            else:
+                line, tag = entry[0], "LLM_TOKEN"
+            self.append_status(line, tag)
+
     def set_status(self, running):
         c = COLORS.get("status_running", "#7ec87e") if running else "#5a5a6e"
         self.status_label.configure(
@@ -133,8 +143,20 @@ class LlmPanel(ttk.Frame):
     def _marker_for(self, i):
         return "@@evt{}@@".format(i)
 
+    @staticmethod
+    def _fmt_ts(raw):
+        """把 ISO 8601 UTC 时间戳( "...T10:26:38.697Z" )转成本地 HH:MM:SS。"""
+        if not raw:
+            return ""
+        try:
+            s = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+            dt = datetime.fromisoformat(s)
+            return dt.astimezone().strftime("%H:%M:%S")
+        except Exception:
+            return raw[-8:]
+
     def _summary_line(self, p):
-        ts = (p.get("timestamp") or "")[-8:]
+        ts = self._fmt_ts(p.get("timestamp"))
         ev = p.get("event", "?")
         model = (p.get("model") or "?")[:24]
         task = p.get("taskType") or ""
@@ -157,7 +179,7 @@ class LlmPanel(ttk.Frame):
         i = len(self._events) - 1
         self.text.configure(state="normal")
         self.text.insert("end", self._marker_for(i) + "\n", "TIME")
-        ts = p.get("timestamp", "?")
+        ts = self._fmt_ts(p.get("timestamp")) or "?"
         ev = p.get("event", "?")
         model = "{}/{}".format(p.get("provider", ""), p.get("model", ""))
         task = p.get("taskType", "")
@@ -188,3 +210,6 @@ class LlmPanel(ttk.Frame):
         if total > self.text_max_lines:
             self.text.delete("1.0", "{}.0".format(total - self.text_max_lines))
         self.text.configure(state="disabled")
+
+
+

@@ -81,7 +81,8 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # ---------- LogPanel ----------
 class LogPanel(ttk.Frame):
     def __init__(self, parent, title, accent, wrap_mode="word", show_hscroll=False,
-                 restart_cmd=None, **kw):
+                 restart_cmd=None, restart_label="⟲",
+                 port_var=None, port_apply_cmd=None, **kw):
         """LogPanel: 单服务日志面板。
 
         restart_cmd: callable 或 None — 若非 None,header 加一个 ↻ 按钮调用它。
@@ -96,7 +97,7 @@ class LogPanel(ttk.Frame):
         tk.Label(header, text=title, fg=COLORS["panel_header_fg"], bg=COLORS["panel_header_bg"],
                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=2)
         if restart_cmd is not None:
-            self._restart_btn = tk.Button(header, text="⟲", command=restart_cmd,
+            self._restart_btn = tk.Button(header, text=restart_label, command=restart_cmd,
                 bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
                 activebackground=COLORS["btn_active"], activeforeground=COLORS["btn_fg"],
                 font=("Segoe UI", 9, "bold"), relief="flat", borderwidth=0,
@@ -112,6 +113,23 @@ class LogPanel(ttk.Frame):
         self.status_label = tk.Label(header, text="\u25cf STOPPED", fg=COLORS["status_stopped"],
                                      bg=COLORS["panel_header_bg"], font=("Consolas", 8))
         self.status_label.pack(side="right", padx=8)
+        if port_var is not None and port_apply_cmd is not None:
+            port_frame = tk.Frame(header, bg=COLORS["panel_header_bg"])
+            port_frame.pack(side="right", padx=(0, 4))
+            tk.Label(port_frame, text="\u7aef\u53e3:", fg="#8a8a9e", bg=COLORS["panel_header_bg"],
+                    font=("Segoe UI", 8)).pack(side="left", padx=(0, 2))
+            port_entry = tk.Entry(port_frame, textvariable=port_var, width=5,
+                    bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
+                    insertbackground=COLORS["text_cursor"], font=("Consolas", 9),
+                    relief="flat", borderwidth=0, justify="center")
+            port_entry.pack(side="left", padx=(0, 2))
+            port_entry.bind("<Return>", lambda ev: port_apply_cmd())
+            port_entry.bind("<FocusOut>", lambda ev: port_apply_cmd())
+            tk.Button(port_frame, text="\u5e94\u7528", command=port_apply_cmd,
+                    bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
+                    activebackground=COLORS["btn_active"], activeforeground=COLORS["btn_fg"],
+                    font=("Segoe UI", 8), relief="flat", borderwidth=0, padx=6,
+                    cursor="hand2").pack(side="left")
         text_frame = tk.Frame(self, bg=COLORS["text_bg"])
         text_frame.pack(fill="both", expand=True)
         self.text = tk.Text(text_frame, bg=COLORS["text_bg"], fg=COLORS["text_fg"],
@@ -182,3 +200,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
