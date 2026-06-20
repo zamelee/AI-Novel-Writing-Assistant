@@ -100,3 +100,16 @@ client/tmp/
 client/tmp/**
 tools/tools/
 AI-Novel-Launcher*.exe
+
+
+# Additional runtime artifacts
+tools/launcher-client.log
+tools/launcher-server.log
+tools/qdrant.log
+tools/qdrant/storage/
+tools/qdrant/qdrant.pid
+tools/probe-prisma.cjs
+tools/apply-sqlite-migrations.cjs
+
+# Python bytecode cache (tracked by accident)
+tools/launcher_ui/__pycache__/*.pyc
