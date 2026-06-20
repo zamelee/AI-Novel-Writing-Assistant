@@ -526,14 +526,13 @@ PayoffLedgerSyncService.syncLedger() 会调 LLM 生成 ledger，不能用作 aud
 
 ### Smoke 验证（不重启 dev server，DB 直读）
 
-`server/dev.db` 里《装乖失败后，高干上司红眼强留》（novelId `cmqhhasmw07f`）的 `PayoffLedgerItem` 实际数据：
+`server/dev.db` 里《装乖失败后，高干上司红眼强留》（novelId `cmqhhasmw07fe6omj81dc1ird`）的 `PayoffLedgerItem` 实际数据：
 
-- `pending_payoff`：25 条（含 `chapter_payoff_ref_*`、`lu_mingxuan_family_pressure`、`volume1_open_payoff_2` 等）。
+- `pending_payoff`：12 条（含 `chapter_payoff_ref_*`、`lu_mingxuan_family_pressure` 等）。
 - `overdue`：0 条。
-- `failed`：2 条（按 audit 范围外，仍由 ledger 保留）。
-- `hinted`：9 条、`paid_off`：10 条、`setup`：11 条。
+- `setup`：4 条、`hinted`：9 条、`paid_off`：5 条。
 
-audit runtime 的查询路径会返回 25 条 `pending_payoff` + 0 条 `overdue` = total=25，overdueCount=0，pendingCount=25。`topItems` 显示前 5 条 setup/long-arc 伏笔标题，可直接用于 inspector / 工作流水牌 UI。
+audit runtime 的查询路径会返回 12 条 `pending_payoff` + 0 条 `overdue` = total=12，overdueCount=0，pendingCount=12。`topItems` 显示前 5 条 chapter payoff 引用 + long-arc 伏笔标题，可直接用于 inspector / 工作流水牌 UI。
 
 ### 当前卡点
 
